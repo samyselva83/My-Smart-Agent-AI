@@ -1,28 +1,31 @@
 import streamlit as st
 import tempfile
 import os
-import base64
+import torch
+import torchaudio
 import whisper
-from youtube_transcript_api import YouTubeTranscriptApi
 from groq import Groq
+from youtube_transcript_api import YouTubeTranscriptApi
+import yt_dlp
 
 # -----------------------------
-# ✅ Initialize App and Groq Client
+# ✅ App setup
 # -----------------------------
 st.set_page_config(page_title="My Smart Agent", page_icon="🤖", layout="wide")
+st.title("🤖 My Smart Agent — Multitasking AI Assistant")
 
-st.title("🤖 My Smart Agent — Multi-Purpose AI Assistant")
-st.write("Plan your day, track finances, monitor habits, learn smarter, and summarize videos!")
-
-# Read API key from Streamlit Secrets (safe & secure)
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    st.error("⚠️ GROQ_API_KEY not found. Please set it in Streamlit → Edit Secrets.")
+# -----------------------------
+# 🔑 Groq API Setup
+# -----------------------------
+if "GROQ_API_KEY" not in st.secrets or not st.secrets["GROQ_API_KEY"]:
+    st.error("⚠️ Please add your GROQ_API_KEY in Streamlit → Edit Secrets.")
+    st.stop()
 else:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
     client = Groq(api_key=GROQ_API_KEY)
 
 # -----------------------------
-# 🌐 Language Selection
+# 🌍 Language Selection
 # -----------------------------
 languages = {
     "English": "en",
@@ -39,193 +42,159 @@ languages = {
 selected_lang = st.sidebar.selectbox("🌍 Choose Summary Language", list(languages.keys()))
 
 # -----------------------------
-# 🧠 Utility: Groq Summary Function
+# 🧠 Groq Summarization Utility
 # -----------------------------
 def groq_summary(text, language):
-    """Use Groq LLM to summarize text in the selected language."""
+    """Summarize text using Groq's Llama 3.2 model."""
     try:
-    response = client.chat.completions.create(
-        model="llama-3.2-70b-text-preview",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content
-except Exception as e:
-    if "model_decommissioned" in str(e):
-        return "⚠️ The selected model is no longer supported. Please update to the latest Groq model."
-    return f"Groq summarization error: {e}"
+        prompt = f"Summarize this text in {language} in less than 10 bullet points:\n{text[:8000]}"
+        response = client.chat.completions.create(
+            model="llama-3.2-70b-text-preview",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        if "model_decommissioned" in str(e):
+            return "⚠️ Model deprecated. Please update to the latest Groq model."
+        elif "401" in str(e):
+            return "❌ Invalid Groq API Key. Please verify your key."
+        else:
+            return f"Groq summarization error: {e}"
 
 # -----------------------------
 # 🗓️ 1. Daily Planner
 # -----------------------------
 def daily_planner():
     st.subheader("📅 Daily Planner")
-    tasks = st.text_area("List your tasks for today (one per line):")
-    if st.button("🧾 Generate Plan"):
+    tasks = st.text_area("📝 List your tasks (one per line):")
+    if st.button("Generate Plan"):
         if tasks.strip():
-            plan = groq_summary(f"Create a structured daily plan for these tasks:\n{tasks}", "English")
+            plan = groq_summary(f"Create a structured day plan for:\n{tasks}", selected_lang)
             st.write(plan)
         else:
-            st.warning("Please enter some tasks.")
+            st.warning("Please enter at least one task.")
 
 # -----------------------------
 # 💰 2. Finance Tracker
 # -----------------------------
 def finance_tracker():
     st.subheader("💰 Finance Tracker")
-    income = st.number_input("Enter your total income for the month:", min_value=0)
-    expenses = st.text_area("Enter your expenses (one per line as 'item - amount'):")
-    if st.button("📊 Analyze Finances"):
+    income = st.number_input("💵 Monthly income:", min_value=0)
+    expenses = st.text_area("💸 Expenses (one per line: item - amount):")
+    if st.button("Analyze Finances"):
         try:
             total_expense = 0
-            lines = expenses.split("\n")
-            for line in lines:
+            for line in expenses.splitlines():
                 parts = line.split("-")
                 if len(parts) == 2:
                     total_expense += float(parts[1].strip())
             balance = income - total_expense
-            st.success(f"💵 Remaining Balance: {balance}")
-            summary = groq_summary(f"Income: {income}, Expenses: {expenses}", "English")
-            st.write(summary)
+            st.success(f"💰 Remaining Balance: {balance}")
+            st.write(groq_summary(f"Income: {income}, Expenses: {expenses}", selected_lang))
         except Exception as e:
-            st.error(f"Error calculating finances: {e}")
+            st.error(f"Error: {e}")
 
 # -----------------------------
 # ❤️ 3. Health & Habits
 # -----------------------------
 def health_and_habits():
-    st.subheader("💪 Health & Habit Tracker")
-    habits = st.text_area("Enter your habits (one per line):")
-    if st.button("🧠 Analyze Habits"):
+    st.subheader("❤️ Health & Habits")
+    habits = st.text_area("🏋️ List your habits (one per line):")
+    if st.button("Analyze Habits"):
         if habits.strip():
-            report = groq_summary(f"Analyze these health habits:\n{habits}", "English")
-            st.write(report)
+            st.write(groq_summary(f"Analyze and suggest improvements for these habits:\n{habits}", selected_lang))
         else:
-            st.warning("Please enter at least one habit.")
+            st.warning("Please enter your habits first.")
 
 # -----------------------------
-# 📘 4. LearnMate (AI Learning Assistant)
+# 📘 4. LearnMate
 # -----------------------------
 def learn_mate():
-    st.subheader("📚 LearnMate — Your AI Study Partner")
+    st.subheader("📘 LearnMate — AI Learning Assistant")
     topic = st.text_input("Enter a topic to learn about:")
-    if st.button("🔍 Learn"):
+    if st.button("Teach Me"):
         if topic.strip():
-            lesson = groq_summary(f"Explain this topic for a student: {topic}", selected_lang)
-            st.write(lesson)
+            st.write(groq_summary(f"Explain the topic for a student: {topic}", selected_lang))
         else:
             st.warning("Please enter a topic.")
 
 # -----------------------------
-# 🎬 5. Video Summarizer Agent (Fixed)
+# 🎬 5. Video Summarizer
 # -----------------------------
 def summarize_video_agent():
     st.subheader("🎬 Video Summarizer")
-    st.write("Upload a local video or enter a YouTube URL to summarize with timestamps.")
+    st.write("Upload a local video or enter a YouTube URL to summarize.")
 
-    import yt_dlp, tempfile, torch
-    from pydub import AudioSegment
-    import io
+    video_url = st.text_input("🎥 YouTube URL (optional):")
+    uploaded_file = st.file_uploader("📂 Upload local video (MP4 format)", type=["mp4"])
 
-    video_source = st.text_input("🎥 Enter YouTube URL (or leave blank to upload):")
-    uploaded_file = st.file_uploader("📂 Upload a local video file (MP4 format)", type=["mp4"])
-
-    def try_fetch_youtube_transcript(video_id):
-        """Try fetching transcript safely."""
+    def fetch_youtube_transcript(video_id):
         try:
             api = YouTubeTranscriptApi()
             transcripts = api.list_transcripts(video_id)
             text = ""
             for t in transcripts:
                 text += " ".join([seg["text"] for seg in t.fetch()])
-            if not text.strip():
-                raise ValueError("Empty transcript")
             return text
         except Exception as e:
-            st.warning(f"⚠️ Could not fetch YouTube transcript: {e}")
+            st.warning(f"⚠️ Transcript not available: {e}")
             return ""
 
-    def download_audio_python(url):
-        """Download audio and convert to WAV (no ffmpeg binary needed)."""
-        st.info("🎧 Downloading and converting YouTube audio for transcription...")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
+    def download_audio(url):
+        """Download audio only — no ffmpeg or pydub."""
+        st.info("🎧 Downloading YouTube audio (no ffmpeg)...")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmpfile:
             ydl_opts = {"format": "bestaudio/best", "outtmpl": tmpfile.name, "quiet": True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            audio = AudioSegment.from_file(tmpfile.name, format="m4a")
-            wav_file = tmpfile.name + ".wav"
-            audio.export(wav_file, format="wav")
-            return wav_file
+            waveform, sr = torchaudio.load(tmpfile.name)
+            wav_path = tmpfile.name + ".wav"
+            torchaudio.save(wav_path, waveform, sr)
+            return wav_path
 
     if st.button("Summarize Video"):
         try:
             text = ""
-            if video_source:
-                st.info("Fetching transcript or transcribing audio...")
+            if video_url:
+                st.info("Processing YouTube video...")
                 video_id = ""
-                if "v=" in video_source:
-                    video_id = video_source.split("v=")[-1].split("&")[0]
-                elif "youtu.be" in video_source:
-                    video_id = video_source.split("/")[-1]
-
-                text = try_fetch_youtube_transcript(video_id)
+                if "v=" in video_url:
+                    video_id = video_url.split("v=")[-1].split("&")[0]
+                elif "youtu.be" in video_url:
+                    video_id = video_url.split("/")[-1]
+                text = fetch_youtube_transcript(video_id)
                 if not text.strip():
-                    st.info("🎤 Using Whisper fallback transcription...")
-                    audio_path = download_audio_python(video_source)
+                    st.info("🎤 No transcript found — using Whisper transcription.")
+                    audio_file = download_audio(video_url)
                     model = whisper.load_model("tiny")
-                    result = model.transcribe(audio_path)
+                    result = model.transcribe(audio_file)
                     text = result["text"]
-                    st.success("✅ Audio transcription complete.")
 
             elif uploaded_file:
-                st.info("Transcribing uploaded local video...")
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmpfile:
-                    tmpfile.write(uploaded_file.read())
-                    tmp_path = tmpfile.name
+                st.info("🎤 Transcribing uploaded video...")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+                    tmp.write(uploaded_file.read())
+                    tmp_path = tmp.name
                 model = whisper.load_model("tiny")
                 result = model.transcribe(tmp_path)
                 text = result["text"]
-                st.success("✅ Local video transcribed successfully.")
 
-            else:
-                st.warning("Please provide a YouTube URL or upload a video.")
-                return
-
-            # --- Summarize via Groq ---
             if text.strip():
                 summary = groq_summary(text, selected_lang)
                 st.markdown("### 🧠 Summary")
                 st.write(summary)
             else:
-                st.warning("No transcript text available to summarize.")
-
-            # --- Highlights example ---
-            st.markdown("### ⏱️ Highlights")
-            st.markdown("""
-            <ul>
-            <li><a href="#" onclick="jumpTo(10);return false;">0:10 — Intro</a></li>
-            <li><a href="#" onclick="jumpTo(120);return false;">2:00 — Main Ideas</a></li>
-            <li><a href="#" onclick="jumpTo(300);return false;">5:00 — Wrap-up</a></li>
-            </ul>
-            <script>
-            function jumpTo(t){ var v=document.getElementById('localVideo'); v.currentTime=t; v.play();}
-            </script>
-            """, unsafe_allow_html=True)
+                st.warning("No transcript or text to summarize.")
 
         except Exception as e:
             st.error(f"❌ Error while summarizing: {e}")
-            
+
 # -----------------------------
-# 🌟 Main Navigation
+# 🧭 Sidebar Navigation
 # -----------------------------
 tab = st.sidebar.radio(
-    "Choose a Smart Agent Feature",
-    [
-        "🗓️ Daily Planner",
-        "💰 Finance Tracker",
-        "❤️ Health & Habits",
-        "📘 LearnMate",
-        "🎬 Video Summarizer",
-    ]
+    "🧩 Choose Smart Agent Mode",
+    ["🗓️ Daily Planner", "💰 Finance Tracker", "❤️ Health & Habits", "📘 LearnMate", "🎬 Video Summarizer"]
 )
 
 if tab == "🗓️ Daily Planner":
