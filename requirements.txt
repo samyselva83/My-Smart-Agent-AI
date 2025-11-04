@@ -3,3 +3,6 @@ groq
 yt-dlp
 youtube-transcript-api==0.6.2
 git+https://github.com/openai/whisper.git
+pydub
+torch
+torchaudio
