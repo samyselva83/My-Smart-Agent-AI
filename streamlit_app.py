@@ -44,14 +44,15 @@ selected_lang = st.sidebar.selectbox("🌍 Choose Summary Language", list(langua
 def groq_summary(text, language):
     """Use Groq LLM to summarize text in the selected language."""
     try:
-        prompt = f"Summarize this text in {language} language in less than 10 bullet points:\n{text[:8000]}"
-        response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Groq summarization error: {e}"
+    response = client.chat.completions.create(
+        model="llama-3.2-70b-text-preview",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+except Exception as e:
+    if "model_decommissioned" in str(e):
+        return "⚠️ The selected model is no longer supported. Please update to the latest Groq model."
+    return f"Groq summarization error: {e}"
 
 # -----------------------------
 # 🗓️ 1. Daily Planner
