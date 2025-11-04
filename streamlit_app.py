@@ -121,42 +121,66 @@ def summarize_video_agent():
     st.subheader("🎬 Video Summarizer")
     st.write("Upload a local video or enter a YouTube URL to summarize with timestamps.")
 
+    import yt_dlp
+
     video_source = st.text_input("🎥 Enter YouTube URL (or leave blank to upload):")
     uploaded_file = st.file_uploader("📂 Upload a local video file (MP4 format)", type=["mp4"])
 
     def fetch_youtube_transcript(video_id):
-        """Safe transcript fetch for YouTube (handles new API versions)."""
+        """Try fetching transcript; fallback handled outside."""
         try:
             api = YouTubeTranscriptApi()
             transcripts = api.list_transcripts(video_id)
-            transcript_text = ""
+            text = ""
             for t in transcripts:
-                fetched = t.fetch()
-                transcript_text += " ".join([seg["text"] for seg in fetched])
-            return transcript_text
+                text += " ".join([seg["text"] for seg in t.fetch()])
+            return text
         except Exception as e:
-            st.error(f"⚠️ Could not fetch transcript automatically: {e}")
+            st.warning(f"⚠️ Could not fetch YouTube transcript: {e}")
             return ""
+
+    def download_audio_from_youtube(url):
+        """Download audio only from YouTube video."""
+        st.info("🎧 Downloading YouTube audio for transcription...")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": tmpfile.name,
+                "quiet": True,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }],
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            return tmpfile.name
 
     if st.button("Summarize Video"):
         try:
             text = ""
             if video_source:
-                # --- YouTube case ---
-                st.info("Fetching transcript from YouTube...")
+                st.info("Fetching from YouTube...")
                 video_id = ""
                 if "v=" in video_source:
-                    video_id = video_source.split("v=")[-1]
+                    video_id = video_source.split("v=")[-1].split("&")[0]
                 elif "youtu.be" in video_source:
                     video_id = video_source.split("/")[-1]
+
+                # Try captions first
                 text = fetch_youtube_transcript(video_id)
                 if not text.strip():
-                    st.warning("No transcript available for this video.")
-                else:
-                    st.success("✅ YouTube transcript fetched successfully.")
+                    # Fallback: audio transcription
+                    st.info("🎤 No captions found. Transcribing audio instead...")
+                    audio_path = download_audio_from_youtube(video_source)
+                    model = whisper.load_model("base")
+                    result = model.transcribe(audio_path)
+                    text = result["text"]
+                    st.success("✅ Audio transcription complete.")
+
             elif uploaded_file:
-                # --- Local video case ---
-                st.info("Transcribing uploaded video with Whisper...")
+                st.info("Transcribing uploaded local video...")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmpfile:
                     tmpfile.write(uploaded_file.read())
                     tmp_path = tmpfile.name
@@ -174,21 +198,20 @@ def summarize_video_agent():
                 st.markdown("### 🧠 Summary")
                 st.write(summary)
             else:
-                st.warning("No transcript text available to summarize.")
+                st.warning("No text available to summarize.")
 
-            # --- Highlights (sample static layout) ---
+            # --- Highlights Example ---
             st.markdown("### ⏱️ Highlights")
-            highlights_html = """
+            st.markdown("""
             <ul>
-            <li><a href="#" onclick="jumpTo(10);return false;">0:10 — Introduction</a></li>
-            <li><a href="#" onclick="jumpTo(120);return false;">2:00 — Key Insights</a></li>
-            <li><a href="#" onclick="jumpTo(300);return false;">5:00 — Conclusion</a></li>
+            <li><a href="#" onclick="jumpTo(10);return false;">0:10 — Intro</a></li>
+            <li><a href="#" onclick="jumpTo(120);return false;">2:00 — Main Ideas</a></li>
+            <li><a href="#" onclick="jumpTo(300);return false;">5:00 — Wrap-up</a></li>
             </ul>
             <script>
             function jumpTo(t){ var v=document.getElementById('localVideo'); v.currentTime=t; v.play();}
             </script>
-            """
-            st.markdown(highlights_html, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
         except Exception as e:
             st.error(f"❌ Error while summarizing: {e}")
