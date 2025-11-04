@@ -1,9 +1,6 @@
 streamlit
-pandas
-matplotlib
 groq
 youtube-transcript-api
 whisper
-openai-whisper
+torch
 pytube
-
