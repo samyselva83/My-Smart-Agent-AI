@@ -121,7 +121,9 @@ def summarize_video_agent():
     st.subheader("🎬 Video Summarizer")
     st.write("Upload a local video or enter a YouTube URL to summarize with timestamps.")
 
-    import yt_dlp, tempfile, shutil
+    import yt_dlp, tempfile, torch
+    from pydub import AudioSegment
+    import io
 
     video_source = st.text_input("🎥 Enter YouTube URL (or leave blank to upload):")
     uploaded_file = st.file_uploader("📂 Upload a local video file (MP4 format)", type=["mp4"])
@@ -141,19 +143,17 @@ def summarize_video_agent():
             st.warning(f"⚠️ Could not fetch YouTube transcript: {e}")
             return ""
 
-    def download_audio_no_ffmpeg(url):
-        """Download audio even if ffmpeg is missing."""
-        st.info("🎧 Downloading YouTube audio for transcription (no ffmpeg needed)...")
+    def download_audio_python(url):
+        """Download audio and convert to WAV (no ffmpeg binary needed)."""
+        st.info("🎧 Downloading and converting YouTube audio for transcription...")
         with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": tmpfile.name,
-                "quiet": True,
-                "postprocessors": [],  # skip ffmpeg
-            }
+            ydl_opts = {"format": "bestaudio/best", "outtmpl": tmpfile.name, "quiet": True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            return tmpfile.name
+            audio = AudioSegment.from_file(tmpfile.name, format="m4a")
+            wav_file = tmpfile.name + ".wav"
+            audio.export(wav_file, format="wav")
+            return wav_file
 
     if st.button("Summarize Video"):
         try:
@@ -166,14 +166,11 @@ def summarize_video_agent():
                 elif "youtu.be" in video_source:
                     video_id = video_source.split("/")[-1]
 
-                # Try transcript first
                 text = try_fetch_youtube_transcript(video_id)
-
-                # Fallback: download + whisper
                 if not text.strip():
-                    st.info("🎤 Using Whisper transcription instead...")
-                    audio_path = download_audio_no_ffmpeg(video_source)
-                    model = whisper.load_model("base")
+                    st.info("🎤 Using Whisper fallback transcription...")
+                    audio_path = download_audio_python(video_source)
+                    model = whisper.load_model("tiny")
                     result = model.transcribe(audio_path)
                     text = result["text"]
                     st.success("✅ Audio transcription complete.")
@@ -183,10 +180,11 @@ def summarize_video_agent():
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmpfile:
                     tmpfile.write(uploaded_file.read())
                     tmp_path = tmpfile.name
-                model = whisper.load_model("base")
+                model = whisper.load_model("tiny")
                 result = model.transcribe(tmp_path)
                 text = result["text"]
                 st.success("✅ Local video transcribed successfully.")
+
             else:
                 st.warning("Please provide a YouTube URL or upload a video.")
                 return
@@ -199,7 +197,7 @@ def summarize_video_agent():
             else:
                 st.warning("No transcript text available to summarize.")
 
-            # --- Highlights (example) ---
+            # --- Highlights example ---
             st.markdown("### ⏱️ Highlights")
             st.markdown("""
             <ul>
