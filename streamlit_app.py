@@ -1,132 +1,122 @@
 import streamlit as st
+import tempfile
 import os
 import base64
-import tempfile
-from datetime import datetime
-from groq import Groq
-from youtube_transcript_api import YouTubeTranscriptApi
 import whisper
+from youtube_transcript_api import YouTubeTranscriptApi
+from groq import Groq
 
-# ---------------------------
-#  APP CONFIGURATION
-# ---------------------------
+# -----------------------------
+# ✅ Initialize App and Groq Client
+# -----------------------------
 st.set_page_config(page_title="My Smart Agent", page_icon="🤖", layout="wide")
-st.markdown("<h1 style='text-align:center;'>🤖 My Smart Agent</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;'>Your daily planner, finance tracker, health guide, memory AI, and learn mate — all in one.</p>", unsafe_allow_html=True)
 
-# Sidebar
-st.sidebar.title("🌐 Navigation")
-menu = st.sidebar.radio("Go to", [
-    "🏠 Home",
-    "📅 Daily Planner",
-    "💰 Finance Tracker",
-    "❤️ Health & Habit Tracker",
-    "📘 LearnMate",
-    "🧠 Memory AI",
-    "🎬 Video Summarizer"
-])
+st.title("🤖 My Smart Agent — Multi-Purpose AI Assistant")
+st.write("Plan your day, track finances, monitor habits, learn smarter, and summarize videos!")
 
-# Language Selector
-languages = ["English", "Tamil", "Telugu", "Malayalam", "Kannada", "Hindi", "French", "Spanish", "German", "Japanese"]
-selected_lang = st.sidebar.selectbox("🌍 Choose Summary Language", languages)
+# Read API key from Streamlit Secrets (safe & secure)
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    st.error("⚠️ GROQ_API_KEY not found. Please set it in Streamlit → Edit Secrets.")
+else:
+    client = Groq(api_key=GROQ_API_KEY)
 
-# Groq Client
-GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+# -----------------------------
+# 🌐 Language Selection
+# -----------------------------
+languages = {
+    "English": "en",
+    "Tamil": "ta",
+    "Telugu": "te",
+    "Malayalam": "ml",
+    "Kannada": "kn",
+    "Hindi": "hi",
+    "French": "fr",
+    "Spanish": "es",
+    "German": "de",
+    "Japanese": "ja"
+}
+selected_lang = st.sidebar.selectbox("🌍 Choose Summary Language", list(languages.keys()))
 
-client = Groq(api_key=GROQ_API_KEY)
-
-# ---------------------------
-#  UTILITIES
-# ---------------------------
+# -----------------------------
+# 🧠 Utility: Groq Summary Function
+# -----------------------------
 def groq_summary(text, language):
-    """Generate a short multilingual summary using Groq."""
+    """Use Groq LLM to summarize text in the selected language."""
     try:
-        prompt = f"Summarize this text in {language} with key points:\n{text[:8000]}"
-        completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-70b-versatile"
+        prompt = f"Summarize this text in {language} language in less than 10 bullet points:\n{text[:8000]}"
+        response = client.chat.completions.create(
+            model="llama-3.1-70b-versatile",
+            messages=[{"role": "user", "content": prompt}]
         )
-        return completion.choices[0].message.content
+        return response.choices[0].message.content
     except Exception as e:
-        return f"Error generating summary: {e}"
+        return f"Groq summarization error: {e}"
 
-
-# ---------------------------
-#  AGENT MODULES
-# ---------------------------
-
-# --- 1. Daily Planner Agent ---
+# -----------------------------
+# 🗓️ 1. Daily Planner
+# -----------------------------
 def daily_planner():
-    st.subheader("🗓️ Daily Planner")
-    date = st.date_input("Select Date", datetime.now())
-    tasks = st.text_area("Enter your tasks (one per line)")
-    if st.button("Save Plan"):
-        st.success(f"✅ Tasks saved for {date}:")
-        for t in tasks.split("\n"):
-            st.write(f"- {t.strip()}")
+    st.subheader("📅 Daily Planner")
+    tasks = st.text_area("List your tasks for today (one per line):")
+    if st.button("🧾 Generate Plan"):
+        if tasks.strip():
+            plan = groq_summary(f"Create a structured daily plan for these tasks:\n{tasks}", "English")
+            st.write(plan)
+        else:
+            st.warning("Please enter some tasks.")
 
-
-# --- 2. Finance Tracker Agent ---
+# -----------------------------
+# 💰 2. Finance Tracker
+# -----------------------------
 def finance_tracker():
     st.subheader("💰 Finance Tracker")
-    col1, col2 = st.columns(2)
-    with col1:
-        income = st.number_input("Monthly Income (₹)", min_value=0)
-    with col2:
-        expense = st.number_input("Monthly Expenses (₹)", min_value=0)
+    income = st.number_input("Enter your total income for the month:", min_value=0)
+    expenses = st.text_area("Enter your expenses (one per line as 'item - amount'):")
+    if st.button("📊 Analyze Finances"):
+        try:
+            total_expense = 0
+            lines = expenses.split("\n")
+            for line in lines:
+                parts = line.split("-")
+                if len(parts) == 2:
+                    total_expense += float(parts[1].strip())
+            balance = income - total_expense
+            st.success(f"💵 Remaining Balance: {balance}")
+            summary = groq_summary(f"Income: {income}, Expenses: {expenses}", "English")
+            st.write(summary)
+        except Exception as e:
+            st.error(f"Error calculating finances: {e}")
 
-    if st.button("Track Finance"):
-        savings = income - expense
-        st.write(f"💵 Savings: ₹{savings}")
-        st.progress(min(max(savings / income, 0), 1))
-        if savings < 0:
-            st.error("⚠️ Overspending detected! Try reducing unnecessary expenses.")
-
-
-# --- 3. Health & Habit Tracker Agent ---
-def health_tracker():
-    st.subheader("🏋️ Health & Habit Tracker")
-    sleep = st.slider("Sleep Hours", 0, 12, 7)
-    water = st.slider("Water Intake (glasses)", 0, 15, 8)
-    steps = st.number_input("Steps Walked Today", min_value=0)
-    if st.button("Update Health Log"):
-        score = (sleep / 8 + water / 8 + steps / 8000) / 3
-        st.write(f"🏆 Health Score: {score*100:.1f}%")
-        if score > 0.8:
-            st.success("Excellent! Keep it up.")
-        elif score > 0.5:
-            st.info("Good, but aim for consistency.")
+# -----------------------------
+# ❤️ 3. Health & Habits
+# -----------------------------
+def health_and_habits():
+    st.subheader("💪 Health & Habit Tracker")
+    habits = st.text_area("Enter your habits (one per line):")
+    if st.button("🧠 Analyze Habits"):
+        if habits.strip():
+            report = groq_summary(f"Analyze these health habits:\n{habits}", "English")
+            st.write(report)
         else:
-            st.warning("Needs improvement. Try to maintain regular habits.")
+            st.warning("Please enter at least one habit.")
 
-
-# --- 4. LearnMate Agent ---
+# -----------------------------
+# 📘 4. LearnMate (AI Learning Assistant)
+# -----------------------------
 def learn_mate():
-    st.subheader("📘 LearnMate")
-    topic = st.text_input("Enter a topic you want to learn about:")
-    if st.button("Generate Summary"):
-        summary = groq_summary(topic, selected_lang)
-        st.markdown("### 🧠 Key Summary")
-        st.write(summary)
-
-
-# --- 5. Memory AI Agent ---
-def memory_ai():
-    st.subheader("🧠 Memory AI")
-    user_input = st.text_area("Enter your thoughts, notes, or memories:")
-    if st.button("Remember This"):
-        with open("memory_log.txt", "a", encoding="utf-8") as f:
-            f.write(f"{datetime.now()}: {user_input}\n")
-        st.success("📝 Memory saved locally.")
-    if st.button("Recall Memories"):
-        if os.path.exists("memory_log.txt"):
-            with open("memory_log.txt", "r", encoding="utf-8") as f:
-                st.text(f.read())
+    st.subheader("📚 LearnMate — Your AI Study Partner")
+    topic = st.text_input("Enter a topic to learn about:")
+    if st.button("🔍 Learn"):
+        if topic.strip():
+            lesson = groq_summary(f"Explain this topic for a student: {topic}", selected_lang)
+            st.write(lesson)
         else:
-            st.info("No memories saved yet.")
+            st.warning("Please enter a topic.")
 
-
-# --- 6. Video Summarizer Agent ---
+# -----------------------------
+# 🎬 5. Video Summarizer Agent (Fixed)
+# -----------------------------
 def summarize_video_agent():
     st.subheader("🎬 Video Summarizer")
     st.write("Upload a local video or enter a YouTube URL to summarize with timestamps.")
@@ -134,24 +124,39 @@ def summarize_video_agent():
     video_source = st.text_input("🎥 Enter YouTube URL (or leave blank to upload):")
     uploaded_file = st.file_uploader("📂 Upload a local video file (MP4 format)", type=["mp4"])
 
+    def fetch_youtube_transcript(video_id):
+        """Safe transcript fetch for YouTube (handles new API versions)."""
+        try:
+            api = YouTubeTranscriptApi()
+            transcripts = api.list_transcripts(video_id)
+            transcript_text = ""
+            for t in transcripts:
+                fetched = t.fetch()
+                transcript_text += " ".join([seg["text"] for seg in fetched])
+            return transcript_text
+        except Exception as e:
+            st.error(f"⚠️ Could not fetch transcript automatically: {e}")
+            return ""
+
     if st.button("Summarize Video"):
         try:
             text = ""
             if video_source:
-                # --- Case 1: YouTube ---
+                # --- YouTube case ---
                 st.info("Fetching transcript from YouTube...")
                 video_id = ""
                 if "v=" in video_source:
                     video_id = video_source.split("v=")[-1]
                 elif "youtu.be" in video_source:
                     video_id = video_source.split("/")[-1]
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
-                text = " ".join([t["text"] for t in transcript])
-                st.success("✅ YouTube transcript fetched successfully.")
-
+                text = fetch_youtube_transcript(video_id)
+                if not text.strip():
+                    st.warning("No transcript available for this video.")
+                else:
+                    st.success("✅ YouTube transcript fetched successfully.")
             elif uploaded_file:
-                # --- Case 2: Local Video ---
-                st.info("Transcribing uploaded video with Whisper (Groq compatible)...")
+                # --- Local video case ---
+                st.info("Transcribing uploaded video with Whisper...")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmpfile:
                     tmpfile.write(uploaded_file.read())
                     tmp_path = tmpfile.name
@@ -159,17 +164,19 @@ def summarize_video_agent():
                 result = model.transcribe(tmp_path)
                 text = result["text"]
                 st.success("✅ Local video transcribed successfully.")
-
             else:
                 st.warning("Please provide a YouTube URL or upload a video.")
                 return
 
             # --- Summarize via Groq ---
-            summary = groq_summary(text, selected_lang)
-            st.markdown("### 🧠 Summary")
-            st.write(summary)
+            if text.strip():
+                summary = groq_summary(text, selected_lang)
+                st.markdown("### 🧠 Summary")
+                st.write(summary)
+            else:
+                st.warning("No transcript text available to summarize.")
 
-            # --- Clickable Highlights ---
+            # --- Highlights (sample static layout) ---
             st.markdown("### ⏱️ Highlights")
             highlights_html = """
             <ul>
@@ -186,30 +193,27 @@ def summarize_video_agent():
         except Exception as e:
             st.error(f"❌ Error while summarizing: {e}")
 
+# -----------------------------
+# 🌟 Main Navigation
+# -----------------------------
+tab = st.sidebar.radio(
+    "Choose a Smart Agent Feature",
+    [
+        "🗓️ Daily Planner",
+        "💰 Finance Tracker",
+        "❤️ Health & Habits",
+        "📘 LearnMate",
+        "🎬 Video Summarizer",
+    ]
+)
 
-# ---------------------------
-#  MAIN APP ROUTING
-# ---------------------------
-if menu == "🏠 Home":
-    st.image("https://cdn-icons-png.flaticon.com/512/4712/4712139.png", width=150)
-    st.markdown("### Welcome to **My Smart Agent** 🤖")
-    st.write("Manage your tasks, finances, health, learning, memories, and video summaries — all in one app.")
-    st.info("Select a section from the sidebar to get started!")
-
-elif menu == "📅 Daily Planner":
+if tab == "🗓️ Daily Planner":
     daily_planner()
-
-elif menu == "💰 Finance Tracker":
+elif tab == "💰 Finance Tracker":
     finance_tracker()
-
-elif menu == "❤️ Health & Habit Tracker":
-    health_tracker()
-
-elif menu == "📘 LearnMate":
+elif tab == "❤️ Health & Habits":
+    health_and_habits()
+elif tab == "📘 LearnMate":
     learn_mate()
-
-elif menu == "🧠 Memory AI":
-    memory_ai()
-
-elif menu == "🎬 Video Summarizer":
+elif tab == "🎬 Video Summarizer":
     summarize_video_agent()
