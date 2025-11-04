@@ -32,7 +32,7 @@ selected_lang = st.sidebar.selectbox("🌍 Choose Summary Language", languages)
 
 # Groq Client
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-
+os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
 # ---------------------------
 #  UTILITIES
