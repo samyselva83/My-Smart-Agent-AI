@@ -121,37 +121,35 @@ def summarize_video_agent():
     st.subheader("🎬 Video Summarizer")
     st.write("Upload a local video or enter a YouTube URL to summarize with timestamps.")
 
-    import yt_dlp
+    import yt_dlp, tempfile, shutil
 
     video_source = st.text_input("🎥 Enter YouTube URL (or leave blank to upload):")
     uploaded_file = st.file_uploader("📂 Upload a local video file (MP4 format)", type=["mp4"])
 
-    def fetch_youtube_transcript(video_id):
-        """Try fetching transcript; fallback handled outside."""
+    def try_fetch_youtube_transcript(video_id):
+        """Try fetching transcript safely."""
         try:
             api = YouTubeTranscriptApi()
             transcripts = api.list_transcripts(video_id)
             text = ""
             for t in transcripts:
                 text += " ".join([seg["text"] for seg in t.fetch()])
+            if not text.strip():
+                raise ValueError("Empty transcript")
             return text
         except Exception as e:
             st.warning(f"⚠️ Could not fetch YouTube transcript: {e}")
             return ""
 
-    def download_audio_from_youtube(url):
-        """Download audio only from YouTube video."""
-        st.info("🎧 Downloading YouTube audio for transcription...")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
+    def download_audio_no_ffmpeg(url):
+        """Download audio even if ffmpeg is missing."""
+        st.info("🎧 Downloading YouTube audio for transcription (no ffmpeg needed)...")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmpfile:
             ydl_opts = {
                 "format": "bestaudio/best",
                 "outtmpl": tmpfile.name,
                 "quiet": True,
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }],
+                "postprocessors": [],  # skip ffmpeg
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -161,19 +159,20 @@ def summarize_video_agent():
         try:
             text = ""
             if video_source:
-                st.info("Fetching from YouTube...")
+                st.info("Fetching transcript or transcribing audio...")
                 video_id = ""
                 if "v=" in video_source:
                     video_id = video_source.split("v=")[-1].split("&")[0]
                 elif "youtu.be" in video_source:
                     video_id = video_source.split("/")[-1]
 
-                # Try captions first
-                text = fetch_youtube_transcript(video_id)
+                # Try transcript first
+                text = try_fetch_youtube_transcript(video_id)
+
+                # Fallback: download + whisper
                 if not text.strip():
-                    # Fallback: audio transcription
-                    st.info("🎤 No captions found. Transcribing audio instead...")
-                    audio_path = download_audio_from_youtube(video_source)
+                    st.info("🎤 Using Whisper transcription instead...")
+                    audio_path = download_audio_no_ffmpeg(video_source)
                     model = whisper.load_model("base")
                     result = model.transcribe(audio_path)
                     text = result["text"]
@@ -198,9 +197,9 @@ def summarize_video_agent():
                 st.markdown("### 🧠 Summary")
                 st.write(summary)
             else:
-                st.warning("No text available to summarize.")
+                st.warning("No transcript text available to summarize.")
 
-            # --- Highlights Example ---
+            # --- Highlights (example) ---
             st.markdown("### ⏱️ Highlights")
             st.markdown("""
             <ul>
@@ -215,7 +214,7 @@ def summarize_video_agent():
 
         except Exception as e:
             st.error(f"❌ Error while summarizing: {e}")
-
+            
 # -----------------------------
 # 🌟 Main Navigation
 # -----------------------------
