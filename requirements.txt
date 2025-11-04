@@ -5,3 +5,5 @@ groq
 youtube-transcript-api
 whisper
 openai-whisper
+pytube
+
