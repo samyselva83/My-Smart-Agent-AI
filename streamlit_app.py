@@ -77,7 +77,7 @@ Your goal:
 # 🧩 Streamlit UI Setup
 # -------------------------------
 st.set_page_config(page_title="My Smart Agent", layout="wide")
-st.title("🤖 My Smart Agent AI")
+st.title(" My Smart Agent AI 🤖")
 
 # Sidebar
 st.sidebar.header("🧠 Agent Modules")
