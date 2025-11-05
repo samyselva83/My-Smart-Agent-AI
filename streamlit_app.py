@@ -212,36 +212,26 @@ if choice == "Dashboard":
 # ---------------------------
 # Daily Planner (AI) — Auto Default Time for >5 Tasks
 # ---------------------------
+# ---------------------------
+# Daily Planner (AI) — Smart Time Handling
+# ---------------------------
 elif choice == "Daily Planner (AI)":
     user = require_user()
-    st.header("Daily Planner — AI Powered")
+    st.header("🗓️ Daily Planner — AI Time Smart")
 
-    st.markdown("Enter tasks (one per line). You may add priority tags like `[high]`, `[medium]`, `[low]` at the end of each line.")
+    st.markdown("""
+    **Instructions:**  
+    • Enter your tasks (one per line).  
+    • You can include optional time hints (e.g., "meeting at 2 PM", "gym before 8am").  
+    • If no time hints are given, AI will automatically schedule your full day (09:00–18:00).  
+    • Add priority tags like `[high]`, `[medium]`, `[low]` for better planning.
+    """)
+
     tasks_input = st.text_area(
-        "📝 Tasks",
-        placeholder="Example:\nPrepare slides for presentation [high]\nReply to client emails [medium]\nGym [low]",
-        height=200
+        "📝 Your Tasks",
+        placeholder="Example:\nPrepare slides for presentation [high]\nClient meeting at 3 PM [high]\nGym [low]",
+        height=220
     )
-
-    # Detect number of tasks
-    task_lines = [t.strip() for t in tasks_input.splitlines() if t.strip()]
-    num_tasks = len(task_lines)
-
-    # Default times
-    default_start = time(9, 0)
-    default_end = time(18, 0)
-
-    # Auto-time selection logic
-    if num_tasks > 5:
-        st.info("Detected more than 5 tasks — defaulting schedule to 09:00–18:00.")
-        start_time = default_start
-        end_time = default_end
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            start_time = st.time_input("Day start", value=default_start)
-        with col2:
-            end_time = st.time_input("Day end", value=default_end)
 
     timezone = st.text_input("Timezone (optional)", value="local time")
 
@@ -249,16 +239,33 @@ elif choice == "Daily Planner (AI)":
         if not tasks_input.strip():
             st.warning("Please enter at least one task.")
         else:
-            # Create planner agent
+            # Detect if user mentioned time expressions
+            time_keywords = ["am", "pm", "hour", "hrs", "o’clock", "before", "after", "morning", "afternoon", "evening", "night"]
+            has_time_hint = any(k in tasks_input.lower() for k in time_keywords)
+
+            # Set intelligent defaults
+            default_start = "09:00"
+            default_end = "18:00"
+
+            if has_time_hint:
+                st.info("🕐 Detected time hints in tasks — AI will follow user’s time instructions.")
+                day_start, day_end = "Flexible", "Flexible"
+            else:
+                st.info("🕘 No time hints found — AI will plan your day automatically (09:00–18:00).")
+                day_start, day_end = default_start, default_end
+
+            # Create AI planner agent
             agent = DailyPlannerAgent(
                 client,
                 language=selected_lang,
-                day_start=start_time.strftime("%H:%M"),
-                day_end=end_time.strftime("%H:%M")
+                day_start=day_start if day_start != "Flexible" else default_start,
+                day_end=day_end if day_end != "Flexible" else default_end
             )
-            with st.spinner("Generating your smart plan..."):
+
+            with st.spinner("Generating your personalized AI schedule..."):
                 plan = agent.generate_plan(tasks_input, timezone=timezone)
-            st.markdown("### ✅ Generated Plan")
+
+            st.markdown("### ✅ Your AI-Powered Day Plan")
             if plan.startswith("Planner error") or plan.startswith("⚠️") or plan.startswith("❌"):
                 st.error(plan)
             else:
