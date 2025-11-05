@@ -49,7 +49,7 @@ def groq_summary(text, language):
     try:
         prompt = f"Summarize this text in {language} in less than 10 bullet points:\n{text[:8000]}"
         response = client.chat.completions.create(
-            model="groq/llama3-8b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content
