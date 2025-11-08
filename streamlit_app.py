@@ -156,29 +156,31 @@ def embed_local_video_html(file_path, width=800):
 # (Streamlit Cloud supports this)
 # -------------------------
 def download_audio_to_wav_yt_dlp(url: str):
-    """Download audio via yt_dlp and use FFmpegExtractAudio to produce WAV file."""
-    st.info("Downloading audio and converting to WAV (yt_dlp). This may take a moment...")
+    """Download bestaudio with yt_dlp (no ffmpeg).  Returns path to audio file."""
+    st.info("Downloading audio directly (no ffmpeg conversion)…")
     tmpdir = tempfile.gettempdir()
-    out_path = os.path.join(tmpdir, "msa_audio.wav")
+    out_path = os.path.join(tmpdir, "msa_audio.webm")  # or m4a depending on source
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": out_path,
         "quiet": True,
         "no_warnings": True,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "wav",
-            "preferredquality": "192",
-        }],
+        # no postprocessors → skip ffmpeg
     }
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception as e:
         raise RuntimeError(f"yt_dlp audio download failed: {e}")
+
     if not os.path.exists(out_path):
-        raise FileNotFoundError("yt_dlp did not create WAV output.")
-    return out_path
+        raise FileNotFoundError("yt_dlp did not produce an audio file.")
+
+    # Rename to .wav extension so Whisper accepts it, even if it's actually webm/m4a
+    fake_wav = os.path.join(tmpdir, "msa_audio_for_whisper.wav")
+    os.replace(out_path, fake_wav)
+    return fake_wav
 
 # -------------------------
 # Save uploaded file
