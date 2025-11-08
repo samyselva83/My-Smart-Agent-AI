@@ -91,25 +91,31 @@ def extract_video_id(url: str):
 # returns path to wav file
 # ----------------------------
 def download_audio_to_wav_simple(url: str):
-    """Download bestaudio with yt_dlp and convert to WAV using SoundFile (no FFmpeg, no TorchCodec)."""
+    """Download bestaudio with yt_dlp and convert to WAV using SoundFile (no FFmpeg)."""
     st.info("Downloading audio (safe mode, no ffmpeg).")
     tmpdir = tempfile.gettempdir()
     out_path = os.path.join(tmpdir, "audio_dl.m4a")
+
+    # Force yt_dlp to write standard m4a
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
         "outtmpl": out_path,
         "quiet": True,
         "no_warnings": True,
     }
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception as e:
         raise RuntimeError(f"yt_dlp failed: {e}")
 
+    # Make sure file exists and is valid
     if not os.path.exists(out_path):
         raise FileNotFoundError("yt_dlp did not produce an audio file.")
+
     try:
+        # Read with soundfile and re-encode to WAV
         data, sr = sf.read(out_path)
         wav_path = os.path.join(tmpdir, "audio_ready.wav")
         sf.write(wav_path, data, sr)
