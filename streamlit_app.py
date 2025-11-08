@@ -116,7 +116,6 @@ def download_audio_to_wav_simple(url: str):
         return wav_path
     except Exception as e:
         raise RuntimeError(f"Audio decode failed (SoundFile): {e}")
-
 # ----------------------------
 # Local upload -> save and return path (prefer .mp4/.wav)
 # ----------------------------
@@ -310,7 +309,7 @@ elif choice == "Video Summarizer":
                         st.warning(f"Captions not available or fetch failed: {e}")
                         st.info("Falling back to audio transcription (Whisper). Downloading audio...")
                         # download audio and transcribe
-                        wav_path = download_audio_to_wav_no_ffmpeg(yt_url.strip())
+                        wav_path = download_audio_to_wav_simple(yt_url.strip())
                         st.info("Transcribing audio with Whisper (tiny)...")
                         transcript_text = transcribe_with_whisper(wav_path)
                         st.success("✅ Audio transcribed with Whisper.")
