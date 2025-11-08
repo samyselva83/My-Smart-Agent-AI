@@ -5,3 +5,4 @@ groq
 streamlit
 git+https://github.com/openai/whisper.git
 pytube 
+torchaudio
