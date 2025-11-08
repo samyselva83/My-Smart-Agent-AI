@@ -13,7 +13,7 @@ import yt_dlp
 import torchaudio
 import whisper
 import soundfile as sf
-from pydub import AudioSegment
+from moviepy.editor import VideoFileClip
 
 # ----------------------------
 # Config / Languages
@@ -92,36 +92,35 @@ def extract_video_id(url: str):
 # returns path to wav file
 # ----------------------------
 def download_audio_to_wav_simple(url: str):
-    """Download bestaudio with yt_dlp and convert to WAV using PyDub (safe mode)."""
-    st.info("Downloading audio (robust mode).")
+    """Download bestaudio with yt_dlp and convert to WAV using MoviePy (no FFmpeg CLI)."""
+    st.info("Downloading and converting audio (MoviePy safe mode)…")
     tmpdir = tempfile.gettempdir()
     base_path = os.path.join(tmpdir, "audio_dl")
-    out_path = base_path + ".webm"
+    out_video = base_path + ".mp4"
+    out_audio = base_path + ".wav"
 
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": out_path,
+        "outtmpl": out_video,
         "quiet": True,
         "no_warnings": True,
     }
-
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception as e:
-        raise RuntimeError(f"yt_dlp failed: {e}")
+        raise RuntimeError(f"yt_dlp download failed: {e}")
 
-    if not os.path.exists(out_path):
-        raise FileNotFoundError("yt_dlp did not produce an audio file.")
+    if not os.path.exists(out_video):
+        raise FileNotFoundError("yt_dlp did not produce a video/audio file.")
 
-    # Convert to WAV using PyDub (works for .webm, .m4a, etc.)
     try:
-        audio = AudioSegment.from_file(out_path)
-        wav_path = base_path + ".wav"
-        audio.export(wav_path, format="wav")
-        return wav_path
+        clip = VideoFileClip(out_video)
+        clip.audio.write_audiofile(out_audio, logger=None)
+        clip.close()
+        return out_audio
     except Exception as e:
-        raise RuntimeError(f"Audio conversion failed (PyDub): {e}")
+        raise RuntimeError(f"MoviePy audio extraction failed: {e}")
 # ----------------------------
 # Local upload -> save and return path (prefer .mp4/.wav)
 # ----------------------------
