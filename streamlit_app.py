@@ -12,6 +12,7 @@ from pytube import YouTube
 import yt_dlp
 import torchaudio
 import whisper
+import soundfile as sf
 
 # ----------------------------
 # Config / Languages
@@ -89,13 +90,14 @@ def extract_video_id(url: str):
 # Audio download & conversion (yt_dlp + torchaudio)
 # returns path to wav file
 # ----------------------------
-def download_audio_to_wav_no_ffmpeg(url: str):
-    st.info("Downloading audio (no ffmpeg). This may take a moment...")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
-        out_template = tmp.name  # yt_dlp will write to tmp.name (no extension) or with extension
+def download_audio_to_wav_simple(url: str):
+    """Download bestaudio with yt_dlp and convert to WAV using SoundFile (no FFmpeg, no TorchCodec)."""
+    st.info("Downloading audio (safe mode, no ffmpeg).")
+    tmpdir = tempfile.gettempdir()
+    out_path = os.path.join(tmpdir, "audio_dl.m4a")
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": out_template,
+        "outtmpl": out_path,
         "quiet": True,
         "no_warnings": True,
     }
@@ -103,30 +105,17 @@ def download_audio_to_wav_no_ffmpeg(url: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception as e:
-        raise RuntimeError(f"yt_dlp download failed: {e}")
-    # find the file written (yt_dlp may add extension)
-    candidates = [out_template, out_template + ".webm", out_template + ".m4a", out_template + ".mp3"]
-    src = None
-    for c in candidates:
-        if os.path.exists(c):
-            src = c
-            break
-    if not src:
-        # try list files in temp dir
-        for f in os.listdir(tempfile.gettempdir()):
-            if f.startswith(os.path.basename(out_template)):
-                src = os.path.join(tempfile.gettempdir(), f)
-                break
-    if not src:
-        raise FileNotFoundError("Downloaded audio file not found after yt_dlp.")
-    # load via torchaudio and save as wav
+        raise RuntimeError(f"yt_dlp failed: {e}")
+
+    if not os.path.exists(out_path):
+        raise FileNotFoundError("yt_dlp did not produce an audio file.")
     try:
-        waveform, sr = torchaudio.load(src)
-        wav_path = src + ".wav"
-        torchaudio.save(wav_path, waveform, sr)
+        data, sr = sf.read(out_path)
+        wav_path = os.path.join(tmpdir, "audio_ready.wav")
+        sf.write(wav_path, data, sr)
         return wav_path
     except Exception as e:
-        raise RuntimeError(f"Audio decode failed: {e}")
+        raise RuntimeError(f"Audio decode failed (SoundFile): {e}")
 
 # ----------------------------
 # Local upload -> save and return path (prefer .mp4/.wav)
