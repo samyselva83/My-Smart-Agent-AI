@@ -92,35 +92,32 @@ def extract_video_id(url: str):
 # returns path to wav file
 # ----------------------------
 def download_audio_to_wav_simple(url: str):
-    """Download bestaudio with yt_dlp and convert to WAV using MoviePy (no FFmpeg CLI)."""
-    st.info("Downloading and converting audio (MoviePy safe mode)…")
+    """Download bestaudio with yt_dlp and convert to WAV (no moviepy/pydub)."""
+    st.info("🎧 Downloading and extracting audio (yt_dlp native)...")
     tmpdir = tempfile.gettempdir()
-    base_path = os.path.join(tmpdir, "audio_dl")
-    out_video = base_path + ".mp4"
-    out_audio = base_path + ".wav"
+    out_path = os.path.join(tmpdir, "audio_dl.wav")
 
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": out_video,
+        "outtmpl": out_path,
         "quiet": True,
         "no_warnings": True,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "wav",
+            "preferredquality": "192",
+        }],
     }
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception as e:
-        raise RuntimeError(f"yt_dlp download failed: {e}")
+        raise RuntimeError(f"yt_dlp audio download failed: {e}")
 
-    if not os.path.exists(out_video):
-        raise FileNotFoundError("yt_dlp did not produce a video/audio file.")
-
-    try:
-        clip = VideoFileClip(out_video)
-        clip.audio.write_audiofile(out_audio, logger=None)
-        clip.close()
-        return out_audio
-    except Exception as e:
-        raise RuntimeError(f"MoviePy audio extraction failed: {e}")
+    if not os.path.exists(out_path):
+        raise FileNotFoundError("Audio file not created by yt_dlp.")
+    return out_path
 # ----------------------------
 # Local upload -> save and return path (prefer .mp4/.wav)
 # ----------------------------
