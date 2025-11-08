@@ -1,10 +1,5 @@
 # ============================================================
-# 🤖 My Smart Agent — Streamlit Edition (Full Integrated Version)
-# Includes:
-# - Dashboard with module status
-# - AI Daily Planner (Groq powered)
-# - Finance Tracker, Health, LearnMate (placeholders)
-# - Enhanced Video Summarizer (clickable timestamps + thumbnail)
+# 🤖 My Smart Agent — Streamlit Edition (Final Fixed Version)
 # ============================================================
 
 import streamlit as st
@@ -12,7 +7,6 @@ from datetime import time
 from groq import Groq
 from youtube_transcript_api import YouTubeTranscriptApi
 from pytube import YouTube
-import tempfile
 import re
 
 # ============================================================
@@ -84,6 +78,33 @@ Your goals:
             return f"Planner error: {e}"
 
 # ============================================================
+# 🧩 Helper Functions for Video Summarizer
+# ============================================================
+def summarize_video_with_groq(transcript_text, language="English"):
+    """Summarize transcript using Groq model"""
+    try:
+        prompt = f"Summarize this video transcript in {language}. Include 5 key highlights with timestamps in HH:MM format."
+        resp = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": f"{prompt}\n\n{transcript_text[:8000]}"}],
+            max_tokens=700,
+            temperature=0.4,
+        )
+        return getattr(resp.choices[0].message, "content", "")
+    except Exception as e:
+        return f"Groq summarization error: {e}"
+
+def make_clickable_timestamps(summary_text, video_id):
+    """Convert HH:MM into clickable YouTube links"""
+    pattern = r"(\d{1,2}:\d{2})"
+    def repl(match):
+        t = match.group(1)
+        parts = t.split(":")
+        seconds = int(parts[0]) * 60 + int(parts[1])
+        return f"[{t}](https://www.youtube.com/watch?v={video_id}&t={seconds}s)"
+    return re.sub(pattern, repl, summary_text)
+
+# ============================================================
 # 🧩 Streamlit Layout
 # ============================================================
 st.set_page_config(page_title="My Smart Agent", layout="wide")
@@ -110,13 +131,13 @@ if choice == "Dashboard":
 ### 🚀 Current Module Status
 | Module | Status | Description |
 |--------|---------|-------------|
-| 🧠 Daily Planner (AI) | ✅ Live for public trial | Intelligent task scheduling with multilingual support |
-| 💰 Finance Tracker | ⚙️ In development | Auto expense categorization and budgeting |
-| 💪 Health & Habits | ⚙️ In development | Routine and wellness tracker |
-| 📚 LearnMate | ⚙️ Under testing | AI learning companion with file-based Q&A |
-| 🎬 Video Summarizer | 🧪 Active Beta | YouTube summary with highlights and clickable timestamps |
+| 🧠 Daily Planner (AI) | ✅ Live | Smart task scheduling with multilingual support |
+| 💰 Finance Tracker | ⚙️ Developing | Budget analysis & savings insight |
+| 💪 Health & Habits | ⚙️ Developing | Routine & wellness tracker |
+| 📚 LearnMate | 🧪 Testing | File-based AI learning companion |
+| 🎬 Video Summarizer | 🧩 Enhanced | YouTube summaries with highlights & timestamps |
 
-💡 **Tip:** Start with “Daily Planner (AI)” or test “Video Summarizer” for best experience.
+💡 **Tip:** Try “Daily Planner (AI)” or “Video Summarizer” for full features.
 """)
 
 # ============================================================
@@ -165,50 +186,28 @@ elif choice == "Daily Planner (AI)":
 # ============================================================
 elif choice == "Finance Tracker":
     st.header("💰 Finance Tracker — Coming Soon")
-    st.info("Will include expense categorization, savings insights, and visual dashboards.")
+    st.info("Will include expense categorization, savings insights, and dashboards.")
 
 # ============================================================
 # 💪 Health & Habits (placeholder)
 # ============================================================
 elif choice == "Health & Habits":
     st.header("💪 Health & Habits — Coming Soon")
-    st.info("Track your routines, workouts, and wellness metrics here.")
+    st.info("Track routines, workouts, and wellness stats.")
 
 # ============================================================
 # 📚 LearnMate (placeholder)
 # ============================================================
 elif choice == "LearnMate":
     st.header("📚 LearnMate — AI Study Partner")
-    st.info("Under testing — will let you upload notes and ask questions with multilingual answers.")
+    st.info("Upload notes and ask AI questions (coming soon).")
 
 # ============================================================
 # 🎬 Video Summarizer (Enhanced)
 # ============================================================
-def summarize_video_with_groq(transcript_text, language="English"):
-    try:
-        prompt = f"Summarize this video transcript in {language}. Include 5 key highlights with timestamps in HH:MM format."
-        resp = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[{"role": "user", "content": f"{prompt}\n\n{transcript_text[:8000]}"}],
-            max_tokens=700,
-            temperature=0.4,
-        )
-        return getattr(resp.choices[0].message, "content", "")
-    except Exception as e:
-        return f"Groq summarization error: {e}"
-
-def make_clickable_timestamps(summary_text, video_id):
-    pattern = r"(\d{1,2}:\d{2})"
-    def repl(match):
-        t = match.group(1)
-        parts = t.split(":")
-        seconds = int(parts[0]) * 60 + int(parts[1])
-        return f"[{t}](https://www.youtube.com/watch?v={video_id}&t={seconds}s)"
-    return re.sub(pattern, repl, summary_text)
-
 elif choice == "Video Summarizer":
     st.header("🎬 Video Summarizer — AI Highlights with Clickable Timestamps")
-    st.markdown("Upload or paste a YouTube video link to get multilingual AI highlights and timestamps.")
+    st.markdown("Paste a YouTube link to get multilingual AI highlights and timestamps.")
 
     yt_url = st.text_input("Paste YouTube URL:")
     if st.button("🧠 Summarize Video"):
