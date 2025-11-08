@@ -1,8 +1,9 @@
 streamlit
 groq
-youtube-transcript-api==0.6.2
+youtube-transcript-api
 pytube
 yt-dlp
-git+https://github.com/openai/whisper.git
 torch
 torchaudio
+torchcodec
+git+https://github.com/openai/whisper.git
