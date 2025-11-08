@@ -13,6 +13,7 @@ import yt_dlp
 import torchaudio
 import whisper
 import soundfile as sf
+from pydub import AudioSegment
 
 # ----------------------------
 # Config / Languages
@@ -91,14 +92,14 @@ def extract_video_id(url: str):
 # returns path to wav file
 # ----------------------------
 def download_audio_to_wav_simple(url: str):
-    """Download bestaudio with yt_dlp and convert to WAV using SoundFile (no FFmpeg)."""
-    st.info("Downloading audio (safe mode, no ffmpeg).")
+    """Download bestaudio with yt_dlp and convert to WAV using PyDub (safe mode)."""
+    st.info("Downloading audio (robust mode).")
     tmpdir = tempfile.gettempdir()
-    out_path = os.path.join(tmpdir, "audio_dl.m4a")
+    base_path = os.path.join(tmpdir, "audio_dl")
+    out_path = base_path + ".webm"
 
-    # Force yt_dlp to write standard m4a
     ydl_opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "format": "bestaudio/best",
         "outtmpl": out_path,
         "quiet": True,
         "no_warnings": True,
@@ -110,18 +111,17 @@ def download_audio_to_wav_simple(url: str):
     except Exception as e:
         raise RuntimeError(f"yt_dlp failed: {e}")
 
-    # Make sure file exists and is valid
     if not os.path.exists(out_path):
         raise FileNotFoundError("yt_dlp did not produce an audio file.")
 
+    # Convert to WAV using PyDub (works for .webm, .m4a, etc.)
     try:
-        # Read with soundfile and re-encode to WAV
-        data, sr = sf.read(out_path)
-        wav_path = os.path.join(tmpdir, "audio_ready.wav")
-        sf.write(wav_path, data, sr)
+        audio = AudioSegment.from_file(out_path)
+        wav_path = base_path + ".wav"
+        audio.export(wav_path, format="wav")
         return wav_path
     except Exception as e:
-        raise RuntimeError(f"Audio decode failed (SoundFile): {e}")
+        raise RuntimeError(f"Audio conversion failed (PyDub): {e}")
 # ----------------------------
 # Local upload -> save and return path (prefer .mp4/.wav)
 # ----------------------------
