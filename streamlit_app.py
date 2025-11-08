@@ -1,5 +1,5 @@
 # ============================================================
-# 🤖 My Smart Agent — Streamlit Edition (Final Fixed Version)
+# 🤖 My Smart Agent — Streamlit Edition (Final Stable Version)
 # ============================================================
 
 import streamlit as st
@@ -78,12 +78,26 @@ Your goals:
             return f"Planner error: {e}"
 
 # ============================================================
-# 🧩 Helper Functions for Video Summarizer
+# 🎬 Helper Functions for Video Summarizer
 # ============================================================
+def extract_video_id(url: str):
+    """Extracts YouTube video ID from any valid format."""
+    patterns = [
+        r"(?:v=)([0-9A-Za-z_-]{11})",          # Standard watch link
+        r"(?:be/)([0-9A-Za-z_-]{11})",         # Short link
+        r"(?:embed/)([0-9A-Za-z_-]{11})",      # Embed format
+        r"(?:shorts/)([0-9A-Za-z_-]{11})",     # Shorts format
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
 def summarize_video_with_groq(transcript_text, language="English"):
     """Summarize transcript using Groq model"""
     try:
-        prompt = f"Summarize this video transcript in {language}. Include 5 key highlights with timestamps in HH:MM format."
+        prompt = f"Summarize this YouTube transcript in {language}. Include 5–7 key highlights with timestamps (HH:MM)."
         resp = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[{"role": "user", "content": f"{prompt}\n\n{transcript_text[:8000]}"}],
@@ -95,7 +109,7 @@ def summarize_video_with_groq(transcript_text, language="English"):
         return f"Groq summarization error: {e}"
 
 def make_clickable_timestamps(summary_text, video_id):
-    """Convert HH:MM into clickable YouTube links"""
+    """Convert HH:MM timestamps into clickable YouTube links."""
     pattern = r"(\d{1,2}:\d{2})"
     def repl(match):
         t = match.group(1)
@@ -126,18 +140,18 @@ selected_lang = st.sidebar.selectbox("🌍 Language", LANGUAGES, index=0)
 # 🏠 Dashboard
 # ============================================================
 if choice == "Dashboard":
-    st.header("📊 Dashboard — My Smart Agent Status")
+    st.header("📊 Dashboard — My Smart Agent Overview")
     st.markdown("""
-### 🚀 Current Module Status
+### 🚀 Module Status
 | Module | Status | Description |
 |--------|---------|-------------|
-| 🧠 Daily Planner (AI) | ✅ Live | Smart task scheduling with multilingual support |
-| 💰 Finance Tracker | ⚙️ Developing | Budget analysis & savings insight |
-| 💪 Health & Habits | ⚙️ Developing | Routine & wellness tracker |
-| 📚 LearnMate | 🧪 Testing | File-based AI learning companion |
-| 🎬 Video Summarizer | 🧩 Enhanced | YouTube summaries with highlights & timestamps |
+| 🧠 Daily Planner (AI) | ✅ Live | Smart multilingual planner |
+| 💰 Finance Tracker | ⚙️ In Development | Expense analytics |
+| 💪 Health & Habits | ⚙️ In Development | Routine tracker |
+| 📚 LearnMate | 🧪 Testing | Document learning AI |
+| 🎬 Video Summarizer | 🧩 Enhanced | Multilingual, clickable timestamps |
 
-💡 **Tip:** Try “Daily Planner (AI)” or “Video Summarizer” for full features.
+💡 **Tip:** Try “Daily Planner (AI)” or “Video Summarizer” modules.
 """)
 
 # ============================================================
@@ -146,22 +160,19 @@ if choice == "Dashboard":
 elif choice == "Daily Planner (AI)":
     st.header("🧠 AI Daily Planner")
     tasks_input = st.text_area(
-        "Enter your tasks (one per line, optional [high]/[medium]/[low]):",
+        "Enter your tasks (one per line):",
         placeholder="Example:\nPrepare slides [high]\nEmail clients [medium]\nGym [low]",
         height=200,
     )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        manual_time = st.toggle("🕒 Set working hours manually", value=False)
-    with col2:
-        timezone = st.text_input("Timezone", value="local time")
+    manual_time = st.toggle("🕒 Set working hours manually", value=False)
+    timezone = st.text_input("Timezone", value="local time")
 
     if manual_time:
-        c1, c2 = st.columns(2)
-        with c1:
+        col1, col2 = st.columns(2)
+        with col1:
             start_time = st.time_input("Start time", value=time(9, 0))
-        with c2:
+        with col2:
             end_time = st.time_input("End time", value=time(18, 0))
     else:
         start_time, end_time = None, None
@@ -176,38 +187,38 @@ elif choice == "Daily Planner (AI)":
                 day_start=start_time.strftime("%H:%M") if start_time else None,
                 day_end=end_time.strftime("%H:%M") if end_time else None,
             )
-            with st.spinner("Generating plan..."):
+            with st.spinner("Generating your daily plan..."):
                 plan = agent.generate_plan(tasks_input, timezone)
             st.markdown("### ✅ Your Smart Plan")
             st.code(plan or "No plan generated", language="markdown")
 
 # ============================================================
-# 💰 Finance Tracker (placeholder)
+# 💰 Finance Tracker
 # ============================================================
 elif choice == "Finance Tracker":
     st.header("💰 Finance Tracker — Coming Soon")
-    st.info("Will include expense categorization, savings insights, and dashboards.")
+    st.info("Budget tracking, expense analytics, and AI savings insights will be added soon.")
 
 # ============================================================
-# 💪 Health & Habits (placeholder)
+# 💪 Health & Habits
 # ============================================================
 elif choice == "Health & Habits":
     st.header("💪 Health & Habits — Coming Soon")
-    st.info("Track routines, workouts, and wellness stats.")
+    st.info("Track your fitness routines, hydration, and daily habits.")
 
 # ============================================================
-# 📚 LearnMate (placeholder)
+# 📚 LearnMate
 # ============================================================
 elif choice == "LearnMate":
-    st.header("📚 LearnMate — AI Study Partner")
-    st.info("Upload notes and ask AI questions (coming soon).")
+    st.header("📚 LearnMate — AI Learning Assistant")
+    st.info("Upload notes or PDFs to get AI-powered study summaries. Coming soon!")
 
 # ============================================================
-# 🎬 Video Summarizer (Enhanced)
+# 🎬 Video Summarizer
 # ============================================================
 elif choice == "Video Summarizer":
-    st.header("🎬 Video Summarizer — AI Highlights with Clickable Timestamps")
-    st.markdown("Paste a YouTube link to get multilingual AI highlights and timestamps.")
+    st.header("🎬 Video Summarizer — Multilingual AI Highlights with Clickable Timestamps")
+    st.markdown("Paste a YouTube link to get summaries, highlights, and timestamps in your selected language.")
 
     yt_url = st.text_input("Paste YouTube URL:")
     if st.button("🧠 Summarize Video"):
@@ -215,20 +226,23 @@ elif choice == "Video Summarizer":
             st.warning("Please enter a valid YouTube link.")
         else:
             try:
-                yt = YouTube(yt_url)
-                video_id = yt_url.split("v=")[1].split("&")[0]
-                st.image(yt.thumbnail_url, width=400, caption=f"🎥 {yt.title}")
-                st.write(f"**Duration:** {yt.length // 60} min {yt.length % 60} sec | **Channel:** {yt.author}")
+                video_id = extract_video_id(yt_url)
+                if not video_id:
+                    st.error("❌ Could not extract video ID. Please check your YouTube link format.")
+                else:
+                    yt = YouTube(yt_url)
+                    st.image(yt.thumbnail_url, width=400, caption=f"🎥 {yt.title}")
+                    st.write(f"**Duration:** {yt.length // 60} min {yt.length % 60} sec | **Channel:** {yt.author}")
 
-                try:
-                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
-                    text = " ".join([t["text"] for t in transcript])
-                    summary = summarize_video_with_groq(text, language=selected_lang)
-                    summary = make_clickable_timestamps(summary, video_id)
-                    st.markdown("### 📝 Summary Highlights")
-                    st.markdown(summary, unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Transcript unavailable: {e}")
-                    st.info("This video may not have subtitles or access is restricted.")
+                    try:
+                        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                        text = " ".join([t['text'] for t in transcript])
+                        summary = summarize_video_with_groq(text, language=selected_lang)
+                        summary = make_clickable_timestamps(summary, video_id)
+                        st.markdown("### 📝 Summary Highlights")
+                        st.markdown(summary, unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"Could not fetch transcript: {e}")
+                        st.info("This video might not have subtitles enabled.")
             except Exception as e:
                 st.error(f"Error loading video: {e}")
