@@ -230,19 +230,23 @@ elif choice == "Video Summarizer":
                 if not video_id:
                     st.error("❌ Could not extract video ID. Please check your YouTube link format.")
                 else:
-                    yt = YouTube(yt_url)
-                    st.image(yt.thumbnail_url, width=400, caption=f"🎥 {yt.title}")
-                    st.write(f"**Duration:** {yt.length // 60} min {yt.length % 60} sec | **Channel:** {yt.author}")
-
+                    # Try pytube for metadata
                     try:
-                        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-                        text = " ".join([t['text'] for t in transcript])
-                        summary = summarize_video_with_groq(text, language=selected_lang)
-                        summary = make_clickable_timestamps(summary, video_id)
-                        st.markdown("### 📝 Summary Highlights")
-                        st.markdown(summary, unsafe_allow_html=True)
-                    except Exception as e:
-                        st.error(f"Could not fetch transcript: {e}")
-                        st.info("This video might not have subtitles enabled.")
+                        yt = YouTube(yt_url)
+                        title = yt.title
+                        thumbnail_url = yt.thumbnail_url
+                        duration_min = yt.length // 60
+                        duration_sec = yt.length % 60
+                        channel = yt.author
+                    except Exception:
+                        # Fallback to simple metadata if pytube fails
+                        title = "Unknown Title"
+                        thumbnail_url = f"https://img.youtube.com/vi/{video_id}/0.jpg"
+                        duration_min, duration_sec, channel = 0, 0, "Unknown Channel"
+                
+                    st.image(thumbnail_url, width=400, caption=f"🎥 {title}")
+                    if duration_min or duration_sec:
+                        st.write(f"**Duration:** {duration_min} min {duration_sec} sec | **Channel:** {channel}")
+
             except Exception as e:
                 st.error(f"Error loading video: {e}")
