@@ -1,10 +1,6 @@
-streamlit
-groq
-youtube-transcript-api==0.6.2
-pytube
-yt-dlp
-torch
-torchaudio
-torchcodec
-git+https://github.com/openai/whisper.git
 soundfile
+yt-dlp
+youtube-transcript-api==0.6.2
+groq
+streamlit
+git+https://github.com/openai/whisper.git
