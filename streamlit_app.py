@@ -6,6 +6,10 @@ import tempfile
 import os
 import re
 import base64
+import imageio_ffmpeg
+
+# ✅ FFmpeg fallback setup for Streamlit Cloud
+os.environ["PATH"] += os.pathsep + os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
 
 # External libs
 from groq import Groq
