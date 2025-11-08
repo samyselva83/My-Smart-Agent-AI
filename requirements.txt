@@ -4,3 +4,4 @@ youtube-transcript-api==0.6.2
 groq
 streamlit
 git+https://github.com/openai/whisper.git
+pytube 
