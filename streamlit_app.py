@@ -14,6 +14,8 @@ import whisper
 from youtube_transcript_api import YouTubeTranscriptApi
 from pytube import YouTube
 import streamlit.components.v1 as components
+import time
+from yt_dlp import YoutubeDL
 
 # -------------------------
 # Config & languages
@@ -156,32 +158,47 @@ def embed_local_video_html(file_path, width=800):
 # (Streamlit Cloud supports this)
 # -------------------------
 def download_audio_to_wav_yt_dlp(url: str):
-    """Download bestaudio with yt_dlp (no ffmpeg).  Returns path to audio file."""
-    st.info("Downloading audio directly (no ffmpeg conversion)…")
+    """Download audio from YouTube with a Streamlit progress bar (no ffmpeg)."""
+    st.info("🎧 Starting audio download (no ffmpeg)...")
     tmpdir = tempfile.gettempdir()
-    out_path = os.path.join(tmpdir, "msa_audio.webm")  # or m4a depending on source
+    out_path = os.path.join(tmpdir, "msa_audio_for_whisper.wav")
+
+    progress = st.progress(0)
+    status = st.empty()
+    percent = 0
+
+    class ProgressHook:
+        def __call__(self, d):
+            nonlocal percent
+            if d['status'] == 'downloading':
+                # try to compute percentage from total_bytes/bytes
+                total = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
+                downloaded = d.get('downloaded_bytes', 0)
+                percent = min(100, int(downloaded / total * 100))
+                progress.progress(percent)
+                status.text(f"⬇️ Downloading audio: {percent}%")
+            elif d['status'] == 'finished':
+                status.text("✅ Download complete. Finalizing...")
+
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": out_path,
         "quiet": True,
         "no_warnings": True,
-        # no postprocessors → skip ffmpeg
+        "progress_hooks": [ProgressHook()],
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
+        progress.progress(100)
+        status.text("✅ Audio file ready for transcription.")
     except Exception as e:
         raise RuntimeError(f"yt_dlp audio download failed: {e}")
 
     if not os.path.exists(out_path):
         raise FileNotFoundError("yt_dlp did not produce an audio file.")
-
-    # Rename to .wav extension so Whisper accepts it, even if it's actually webm/m4a
-    fake_wav = os.path.join(tmpdir, "msa_audio_for_whisper.wav")
-    os.replace(out_path, fake_wav)
-    return fake_wav
-
+    return out_path
 # -------------------------
 # Save uploaded file
 # -------------------------
