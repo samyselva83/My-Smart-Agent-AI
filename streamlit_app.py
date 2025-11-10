@@ -9,9 +9,11 @@ from datetime import time as dtime
 
 import streamlit as st
 import streamlit.components.v1 as components
+import os
+import imageio_ffmpeg
 
 # Ensure imageio_ffmpeg is imported early so we can expose ffmpeg to Whisper
-import imageio_ffmpeg
+
 os.environ["PATH"] += os.pathsep + os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
 
 # External libs
