@@ -1,6 +1,5 @@
 streamlit==1.51.0
 pytube
-youtube-transcript-api
 groq
+youtube-transcript-api==0.6.2
 imageio-ffmpeg
-requests
