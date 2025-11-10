@@ -1,203 +1,162 @@
-# streamlit_app.py
-# 🌐 My Smart Agent – Multi-Agent AI Dashboard (Streamlit Cloud Safe Version)
-# Includes: Dashboard, Daily Planner, Finance Tracker, Health & Habits, LearnMate, Memory, Video Summarizer
+# streamlit_app.py — My Smart Agent (Video Summarizer Version)
 
 import os
 import tempfile
-import base64
-import shutil
-import time
-from datetime import datetime as dtime
 import streamlit as st
-import pandas as pd
-from groq import Groq
 from pytube import YouTube
-from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
+from groq import Groq
 import imageio_ffmpeg
+import openai
+from datetime import timedelta
 
-# ✅ FFmpeg PATH Fix (works even on Streamlit Cloud)
-ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-os.environ["PATH"] += os.pathsep + os.path.dirname(ffmpeg_path)
-os.environ["FFMPEG_BINARY"] = ffmpeg_path
-st.write(f"✅ FFmpeg binary registered: {ffmpeg_path}")
+# -------------------------------
+# ✅ Auto-register ffmpeg path
+# -------------------------------
+os.environ["PATH"] += os.pathsep + os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
+st.success(f"✅ FFmpeg binary registered: {imageio_ffmpeg.get_ffmpeg_exe()}")
 
-# ----------------------------------------------
-# Groq API Setup
-# ----------------------------------------------
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+# -------------------------------
+# 🧠 Groq API setup (replace with your valid key)
+# -------------------------------
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", None)
 if not GROQ_API_KEY:
-    st.warning("⚠️ Please set your GROQ_API_KEY in Streamlit Secrets!")
+    st.warning("⚠️ Please add your GROQ_API_KEY in Streamlit → Settings → Secrets")
 client = Groq(api_key=GROQ_API_KEY)
 
-# ----------------------------------------------
-# App Config
-# ----------------------------------------------
-st.set_page_config(page_title="My Smart Agent", layout="wide", page_icon="🤖")
-
-st.sidebar.title("🤖 My Smart Agent Menu")
-menu = [
-    "Dashboard",
-    "Daily Planner (AI)",
-    "Finance Tracker",
-    "Health & Habits",
-    "LearnMate",
-    "Memory",
-    "Video Summarizer",
-]
-choice = st.sidebar.radio("Choose a module", menu)
-lang_choice = st.sidebar.selectbox(
-    "Language",
-    ["English", "Tamil", "Telugu", "Malayalam", "Kannada", "Hindi", "French", "Spanish", "German", "Japanese"]
-)
-
-# ----------------------------------------------
-# Utility Functions
-# ----------------------------------------------
-def groq_summarize_text(text, language="English"):
-    """Summarize text using Groq API in the selected language"""
+# -------------------------------
+# 🎬 YouTube transcript fetcher
+# -------------------------------
+def get_youtube_transcript(video_id, lang="en"):
     try:
-        prompt = f"Summarize this content in {language}. Include main highlights and timestamps if available:\n{text}"
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript = transcript_list.find_transcript([lang])
+        data = transcript.fetch()
+        text = " ".join([x["text"] for x in data])
+        return text
+    except TranscriptsDisabled:
+        raise Exception("Transcripts are disabled for this video.")
+    except Exception as e:
+        raise Exception(f"Transcript fetch failed: {e}")
+
+# -------------------------------
+# 🧩 Helper: Summarize text via Groq
+# -------------------------------
+def summarize_text_groq(text, language="English"):
+    try:
+        prompt = f"Summarize this YouTube video in {language}. Include timestamps if possible:\n\n{text[:6000]}"
         response = client.chat.completions.create(
-            model="mixtral-8x7b",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=800
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"❌ Groq summarization error: {e}"
+        return f"Groq summarization error: {e}"
 
+# -------------------------------
+# 🎥 Main Video Summarizer logic
+# -------------------------------
+def video_summarizer_ui():
+    st.title("🎬 Video Summarizer — Multilingual AI Highlights with Clickable Timestamps")
+    st.info("Paste a YouTube link or upload a video file to generate an AI-based summary with highlights.")
 
-def get_youtube_id(url: str):
-    """Extract YouTube video ID"""
-    import re
-    match = re.search(r"(?:v=|/)([0-9A-Za-z_-]{11})", url)
-    return match.group(1) if match else None
+    col1, col2 = st.columns(2)
+    with col1:
+        video_url = st.text_input("📺 Paste YouTube URL (example: https://www.youtube.com/watch?v=dQw4w9WgXcQ)")
+    with col2:
+        upload_file = st.file_uploader("📤 Or upload a local video (.mp4/.mkv)", type=["mp4", "mkv"])
 
+    lang_choice = st.selectbox("🌍 Select language for summary", ["English", "Spanish", "French", "German", "Tamil", "Hindi"])
 
-def get_youtube_info(video_id):
-    """Fetch video metadata"""
-    try:
-        yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
-        return yt.title, yt.thumbnail_url, yt.length, yt.author
-    except Exception:
-        return "Unknown Title", "", "Unknown", "Unknown"
+    if st.button("✨ Summarize Video"):
+        with st.spinner("Processing video, please wait..."):
+            try:
+                # 🎞️ If user uploaded a file
+                if upload_file:
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+                    temp_file.write(upload_file.read())
+                    st.video(temp_file.name)
+                    text = "Transcription for local videos under development (Whisper not yet enabled on Streamlit Cloud)."
+                    st.warning(text)
+                    return
 
+                # 🎞️ If YouTube URL given
+                if video_url:
+                    yt = YouTube(video_url)
+                    video_id = yt.video_id
+                    title = yt.title
+                    author = yt.author
+                    length = str(timedelta(seconds=yt.length))
+                    thumb = yt.thumbnail_url
 
-def summarize_youtube(video_url, language="English"):
-    """Main summarization logic"""
-    try:
-        video_id = get_youtube_id(video_url)
-        if not video_id:
-            return None, None, "Invalid YouTube link"
+                    st.image(thumb, caption=f"🎥 {title} — {author} ({length})")
+                    st.write("Attempting to fetch captions...")
 
-        title, thumb, duration, channel = get_youtube_info(video_id)
+                    transcript = get_youtube_transcript(video_id, lang="en")
+                    if not transcript:
+                        st.warning("No captions found — fallback to Whisper will be added later.")
+                        return
 
-        # Try to get captions
-        try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id)
-            text = " ".join([seg["text"] for seg in transcript])
-        except Exception as e:
-            text = None
-            st.warning(f"Captions not available or fetch failed: {e}")
+                    st.success("✅ Captions fetched successfully!")
 
-        # Fallback: audio transcription if captions missing
-        if not text:
-            import yt_dlp
+                    # Summarize using Groq
+                    summary = summarize_text_groq(transcript, language=lang_choice)
 
-            # Create temp working folder with ffmpeg binary
-            ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
-            temp_dir = tempfile.mkdtemp()
-            local_ffmpeg = os.path.join(temp_dir, "ffmpeg")
-            shutil.copy(ffmpeg_bin, local_ffmpeg)
-            os.chmod(local_ffmpeg, 0o755)
-            local_ffprobe = os.path.join(temp_dir, "ffprobe")
-            shutil.copy(ffmpeg_bin, local_ffprobe)
+                    # 🕒 Add clickable timestamps (pattern like 00:01:23 → link)
+                    summary = re.sub(
+                        r'(\b\d{1,2}:\d{2}(?::\d{2})?)',
+                        lambda m: f"[{m.group(1)}](https://www.youtube.com/watch?v={video_id}&t={convert_to_seconds(m.group(1))}s)",
+                        summary
+                    )
 
-            st.info("🎧 Downloading audio using bundled FFmpeg (safe mode)...")
+                    st.subheader("🧠 AI Summary")
+                    st.markdown(summary)
 
-            temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": temp_audio,
-                "quiet": True,
-                "ffmpeg_location": temp_dir,
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192"
-                }],
-            }
+                else:
+                    st.error("Please provide a YouTube link or upload a file.")
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
+            except Exception as e:
+                st.error(f"❌ Error while summarizing: {e}")
 
-            st.success("✅ Audio downloaded successfully.")
+# -------------------------------
+# 🧮 Time helper
+# -------------------------------
+import re
+def convert_to_seconds(time_str):
+    parts = list(map(int, time_str.split(":")))
+    if len(parts) == 3:
+        h, m, s = parts
+    elif len(parts) == 2:
+        h, m, s = 0, parts[0], parts[1]
+    else:
+        return 0
+    return h * 3600 + m * 60 + s
 
-            # Transcribe using Whisper
-            import whisper
-            st.info("🧠 Transcribing with Whisper (tiny)... this can take a minute.")
-            model = whisper.load_model("tiny")
-            result = model.transcribe(temp_audio)
-            text = result["text"]
+# -------------------------------
+# 🚀 Main App
+# -------------------------------
+def main():
+    st.sidebar.title("🧭 My Smart Agent Menu")
+    modules = [
+        "Dashboard",
+        "Daily Planner (AI)",
+        "Finance Tracker",
+        "Health & Habits",
+        "LearnMate",
+        "Memory",
+        "Video Summarizer"
+    ]
+    choice = st.sidebar.radio("Choose a module", modules)
+    st.sidebar.markdown("🌐 Language")
+    st.sidebar.selectbox("", ["English", "Spanish", "French", "Tamil", "Hindi"])
 
-        summary = groq_summarize_text(text, language)
-        return title, thumb, summary
+    if choice == "Video Summarizer":
+        video_summarizer_ui()
+    else:
+        st.info("🚧 Other modules (Planner, Finance, etc.) under development.")
 
-    except Exception as e:
-        return None, None, f"❌ Error while summarizing: {e}"
-
-# ----------------------------------------------
-# Agents
-# ----------------------------------------------
-
-if choice == "Dashboard":
-    st.title("📊 Dashboard")
-    st.markdown("""
-    Welcome to **My Smart Agent** — a multi-agent AI system built with Streamlit and Groq API.
-
-    **Available Agents:**
-    - 🗓️ Daily Planner (AI)
-    - 💵 Finance Tracker
-    - 💪 Health & Habits
-    - 🧠 LearnMate
-    - 🧾 Memory
-    - 🎬 Video Summarizer
-    """)
-
-elif choice == "Daily Planner (AI)":
-    st.title("🗓️ Daily Planner (AI)")
-    st.info("Enter up to 5–10 tasks, and AI will auto-assign smart time slots.")
-    user_tasks = st.text_area("Your tasks (one per line)")
-    if st.button("🧠 Generate Smart Plan"):
-        if user_tasks.strip():
-            tasks = user_tasks.strip().split("\n")
-            prompt = f"Create a realistic daily schedule for the following tasks. Auto-assign time slots smartly:\n\n{user_tasks}"
-            plan = groq_summarize_text(prompt, "English")
-            st.success("✅ Smart Daily Planner Generated:")
-            st.write(plan)
-        else:
-            st.warning("Please enter some tasks first!")
-
-elif choice == "Finance Tracker":
-    st.title("💵 Finance Tracker")
-    st.info("Track your expenses easily.")
-    date = st.date_input("Date")
-    category = st.selectbox("Category", ["Food", "Transport", "Bills", "Entertainment", "Other"])
-    amount = st.number_input("Amount", min_value=0.0)
-    note = st.text_input("Note (optional)")
-    if st.button("Add Expense"):
-        new = pd.DataFrame([[date, category, amount, note]], columns=["Date", "Category", "Amount", "Note"])
-        if "expenses" not in st.session_state:
-            st.session_state["expenses"] = new
-        else:
-            st.session_state["expenses"] = pd.concat([st.session_state["expenses"], new], ignore_index=True)
-        st.success("✅ Expense added!")
-
-    if "expenses" in st.session_state:
-        st.subheader("💰 Expense Summary")
-        df = st.session_state["expenses"]
-        st.dataframe(df)
-        st.write("**Total Spent:** ₹", df["Amount"].sum())
-
-elif choice == "Health & Habits":
-    st.title("💪 Health & Habits")
-    habit = st.text_input("Enter habit (e.g., Drink water, Exercise)")
+# Run app
+if __name__ == "__main__":
+    main()
