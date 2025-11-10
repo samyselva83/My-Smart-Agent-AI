@@ -1,15 +1,15 @@
 # streamlit_app.py
-# 🌐 My Smart Agent – Multi-Agent AI Dashboard
-# Agents: Dashboard, Daily Planner, Finance Tracker, Health & Habits, LearnMate, Memory, Video Summarizer
+# 🌐 My Smart Agent – Multi-Agent AI Dashboard (Streamlit Cloud Safe Version)
+# Includes: Dashboard, Daily Planner, Finance Tracker, Health & Habits, LearnMate, Memory, Video Summarizer
 
 import os
 import tempfile
 import base64
+import shutil
 import time
 from datetime import datetime as dtime
 import streamlit as st
 import pandas as pd
-import requests
 from groq import Groq
 from pytube import YouTube
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -99,18 +99,27 @@ def summarize_youtube(video_url, language="English"):
             text = None
             st.warning(f"Captions not available or fetch failed: {e}")
 
-        # Fallback: audio transcription
+        # Fallback: audio transcription if captions missing
         if not text:
             import yt_dlp
-            temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
 
-            # ✅ Explicit ffmpeg/ffprobe path for yt_dlp
-            ffmpeg_dir = os.path.dirname(ffmpeg_path)
+            # Create temp working folder with ffmpeg binary
+            ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+            temp_dir = tempfile.mkdtemp()
+            local_ffmpeg = os.path.join(temp_dir, "ffmpeg")
+            shutil.copy(ffmpeg_bin, local_ffmpeg)
+            os.chmod(local_ffmpeg, 0o755)
+            local_ffprobe = os.path.join(temp_dir, "ffprobe")
+            shutil.copy(ffmpeg_bin, local_ffprobe)
+
+            st.info("🎧 Downloading audio using bundled FFmpeg (safe mode)...")
+
+            temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
             ydl_opts = {
                 "format": "bestaudio/best",
                 "outtmpl": temp_audio,
                 "quiet": True,
-                "ffmpeg_location": ffmpeg_dir,
+                "ffmpeg_location": temp_dir,
                 "postprocessors": [{
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
@@ -121,8 +130,11 @@ def summarize_youtube(video_url, language="English"):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
 
-            # ✅ Transcribe using Whisper
+            st.success("✅ Audio downloaded successfully.")
+
+            # Transcribe using Whisper
             import whisper
+            st.info("🧠 Transcribing with Whisper (tiny)... this can take a minute.")
             model = whisper.load_model("tiny")
             result = model.transcribe(temp_audio)
             text = result["text"]
@@ -189,47 +201,3 @@ elif choice == "Finance Tracker":
 elif choice == "Health & Habits":
     st.title("💪 Health & Habits")
     habit = st.text_input("Enter habit (e.g., Drink water, Exercise)")
-    if st.button("Add Habit"):
-        st.session_state.setdefault("habits", []).append(habit)
-        st.success(f"✅ Added habit: {habit}")
-
-    if "habits" in st.session_state:
-        st.subheader("Your Habits")
-        for h in st.session_state["habits"]:
-            st.checkbox(h)
-
-elif choice == "LearnMate":
-    st.title("🧠 LearnMate")
-    topic = st.text_input("Enter topic to learn")
-    if st.button("📘 Teach Me"):
-        st.info("Fetching learning summary...")
-        result = groq_summarize_text(f"Explain the topic '{topic}' for easy understanding.", lang_choice)
-        st.success(result)
-
-elif choice == "Memory":
-    st.title("🧾 Memory")
-    note = st.text_area("Write a note")
-    if st.button("Save Note"):
-        st.session_state.setdefault("notes", []).append(note)
-        st.success("🧠 Memory saved!")
-
-    if "notes" in st.session_state:
-        st.subheader("Saved Notes")
-        for i, n in enumerate(st.session_state["notes"], 1):
-            st.markdown(f"**{i}.** {n}")
-
-elif choice == "Video Summarizer":
-    st.title("🎬 Video Summarizer — Multilingual AI Highlights with Clickable Timestamps")
-    st.info("Paste a YouTube link to get smart summaries in your selected language.")
-    video_url = st.text_input("Paste YouTube URL")
-    if st.button("Summarize Video"):
-        with st.spinner("Analyzing video..."):
-            title, thumb, summary = summarize_youtube(video_url, lang_choice)
-            if "❌" in str(summary):
-                st.error(summary)
-            else:
-                if thumb:
-                    st.image(thumb, width=400)
-                st.markdown(f"**🎞️ Title:** {title}")
-                st.markdown(f"**🌐 Language:** {lang_choice}")
-                st.write(summary)
