@@ -7,4 +7,3 @@ pytube
 torch
 ffmpeg-python
 imageio[ffmpeg]
- 
