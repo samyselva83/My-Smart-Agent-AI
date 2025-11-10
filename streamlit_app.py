@@ -59,7 +59,7 @@ def summarize_text_groq(text, language="English"):
 
         # ✅ Use valid model (as of Nov 2025)
         response = client.chat.completions.create(
-            model="llama-3.2-3b-preview",
+            model="mixtral-8x7b-32768",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             max_tokens=900,
