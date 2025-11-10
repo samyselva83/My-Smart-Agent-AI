@@ -1,31 +1,68 @@
-# streamlit_app.py — My Smart Agent (Video Summarizer Version)
+# streamlit_app.py — My Smart Agent (Video Summarizer fixed version)
 
-import os
-import tempfile
+import os, re, tempfile
 import streamlit as st
 from pytube import YouTube
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
 from groq import Groq
 import imageio_ffmpeg
-import openai
 from datetime import timedelta
 
 # -------------------------------
 # ✅ Auto-register ffmpeg path
 # -------------------------------
 os.environ["PATH"] += os.pathsep + os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
-st.success(f"✅ FFmpeg binary registered: {imageio_ffmpeg.get_ffmpeg_exe()}")
+st.success(f"✅ FFmpeg registered: {imageio_ffmpeg.get_ffmpeg_exe()}")
 
 # -------------------------------
-# 🧠 Groq API setup (replace with your valid key)
+# 🧠 Groq API setup
 # -------------------------------
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", None)
 if not GROQ_API_KEY:
-    st.warning("⚠️ Please add your GROQ_API_KEY in Streamlit → Settings → Secrets")
+    st.warning("⚠️ Please set your GROQ_API_KEY in Streamlit → Settings → Secrets")
 client = Groq(api_key=GROQ_API_KEY)
 
 # -------------------------------
-# 🎬 YouTube transcript fetcher
+# 🧮 Utility: Convert timestamp
+# -------------------------------
+def convert_to_seconds(time_str):
+    parts = list(map(int, time_str.split(":")))
+    if len(parts) == 3:
+        h, m, s = parts
+    elif len(parts) == 2:
+        h, m, s = 0, parts[0], parts[1]
+    else:
+        return 0
+    return h * 3600 + m * 60 + s
+
+# -------------------------------
+# 🧩 Summarization via Groq
+# -------------------------------
+def summarize_text_groq(text, language="English"):
+    try:
+        prompt = f"Summarize this YouTube video transcript in {language}. Include clickable timestamps where appropriate:\n\n{text[:6000]}"
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=800
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Groq summarization error: {e}"
+
+# -------------------------------
+# 🎬 Extract clean YouTube ID
+# -------------------------------
+def extract_video_id(url):
+    pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11}).*"
+    match = re.search(pattern, url)
+    if match:
+        return match.group(1)
+    raise ValueError("Invalid YouTube URL format. Please check and try again.")
+
+# -------------------------------
+# 📜 Get transcript
 # -------------------------------
 def get_youtube_transcript(video_id, lang="en"):
     try:
@@ -40,123 +77,81 @@ def get_youtube_transcript(video_id, lang="en"):
         raise Exception(f"Transcript fetch failed: {e}")
 
 # -------------------------------
-# 🧩 Helper: Summarize text via Groq
-# -------------------------------
-def summarize_text_groq(text, language="English"):
-    try:
-        prompt = f"Summarize this YouTube video in {language}. Include timestamps if possible:\n\n{text[:6000]}"
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            max_tokens=800
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Groq summarization error: {e}"
-
-# -------------------------------
-# 🎥 Main Video Summarizer logic
+# 🎥 Video Summarizer UI
 # -------------------------------
 def video_summarizer_ui():
     st.title("🎬 Video Summarizer — Multilingual AI Highlights with Clickable Timestamps")
-    st.info("Paste a YouTube link or upload a video file to generate an AI-based summary with highlights.")
+    st.info("Paste a YouTube link or upload a local video file to summarize.")
 
     col1, col2 = st.columns(2)
     with col1:
-        video_url = st.text_input("📺 Paste YouTube URL (example: https://www.youtube.com/watch?v=dQw4w9WgXcQ)")
+        video_url = st.text_input("📺 Paste YouTube URL", placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     with col2:
         upload_file = st.file_uploader("📤 Or upload a local video (.mp4/.mkv)", type=["mp4", "mkv"])
 
-    lang_choice = st.selectbox("🌍 Select language for summary", ["English", "Spanish", "French", "German", "Tamil", "Hindi"])
+    lang_choice = st.selectbox("🌍 Summary language", ["English", "Spanish", "French", "German", "Tamil", "Hindi"])
 
     if st.button("✨ Summarize Video"):
-        with st.spinner("Processing video, please wait..."):
+        with st.spinner("Processing video... please wait ⏳"):
             try:
-                # 🎞️ If user uploaded a file
                 if upload_file:
-                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-                    temp_file.write(upload_file.read())
-                    st.video(temp_file.name)
-                    text = "Transcription for local videos under development (Whisper not yet enabled on Streamlit Cloud)."
-                    st.warning(text)
+                    st.warning("Local video summarization (Whisper) under development on Streamlit Cloud.")
                     return
 
-                # 🎞️ If YouTube URL given
-                if video_url:
-                    yt = YouTube(video_url)
-                    video_id = yt.video_id
+                if not video_url:
+                    st.error("Please provide a valid YouTube link.")
+                    return
+
+                clean_url = video_url.strip().split("&")[0]  # remove tracking params
+                video_id = extract_video_id(clean_url)
+
+                try:
+                    yt = YouTube(clean_url)
                     title = yt.title
                     author = yt.author
-                    length = str(timedelta(seconds=yt.length))
-                    thumb = yt.thumbnail_url
+                    duration = str(timedelta(seconds=yt.length))
+                    thumbnail = yt.thumbnail_url
+                    st.image(thumbnail, caption=f"🎞️ {title} — {author} ({duration})")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not load video metadata: {e}")
 
-                    st.image(thumb, caption=f"🎥 {title} — {author} ({length})")
-                    st.write("Attempting to fetch captions...")
+                # Get transcript
+                st.info("Attempting to fetch captions...")
+                transcript = get_youtube_transcript(video_id, lang="en")
 
-                    transcript = get_youtube_transcript(video_id, lang="en")
-                    if not transcript:
-                        st.warning("No captions found — fallback to Whisper will be added later.")
-                        return
+                st.success("✅ Captions fetched successfully!")
 
-                    st.success("✅ Captions fetched successfully!")
+                summary = summarize_text_groq(transcript, language=lang_choice)
 
-                    # Summarize using Groq
-                    summary = summarize_text_groq(transcript, language=lang_choice)
+                # Make timestamps clickable
+                summary = re.sub(
+                    r'(\b\d{1,2}:\d{2}(?::\d{2})?)',
+                    lambda m: f"[{m.group(1)}](https://www.youtube.com/watch?v={video_id}&t={convert_to_seconds(m.group(1))}s)",
+                    summary
+                )
 
-                    # 🕒 Add clickable timestamps (pattern like 00:01:23 → link)
-                    summary = re.sub(
-                        r'(\b\d{1,2}:\d{2}(?::\d{2})?)',
-                        lambda m: f"[{m.group(1)}](https://www.youtube.com/watch?v={video_id}&t={convert_to_seconds(m.group(1))}s)",
-                        summary
-                    )
-
-                    st.subheader("🧠 AI Summary")
-                    st.markdown(summary)
-
-                else:
-                    st.error("Please provide a YouTube link or upload a file.")
+                st.subheader("🧠 AI Summary")
+                st.markdown(summary)
 
             except Exception as e:
                 st.error(f"❌ Error while summarizing: {e}")
-
-# -------------------------------
-# 🧮 Time helper
-# -------------------------------
-import re
-def convert_to_seconds(time_str):
-    parts = list(map(int, time_str.split(":")))
-    if len(parts) == 3:
-        h, m, s = parts
-    elif len(parts) == 2:
-        h, m, s = 0, parts[0], parts[1]
-    else:
-        return 0
-    return h * 3600 + m * 60 + s
 
 # -------------------------------
 # 🚀 Main App
 # -------------------------------
 def main():
     st.sidebar.title("🧭 My Smart Agent Menu")
-    modules = [
-        "Dashboard",
-        "Daily Planner (AI)",
-        "Finance Tracker",
-        "Health & Habits",
-        "LearnMate",
-        "Memory",
-        "Video Summarizer"
-    ]
-    choice = st.sidebar.radio("Choose a module", modules)
+    choice = st.sidebar.radio(
+        "Choose a module",
+        ["Dashboard", "Daily Planner (AI)", "Finance Tracker", "Health & Habits", "LearnMate", "Memory", "Video Summarizer"]
+    )
     st.sidebar.markdown("🌐 Language")
     st.sidebar.selectbox("", ["English", "Spanish", "French", "Tamil", "Hindi"])
 
     if choice == "Video Summarizer":
         video_summarizer_ui()
     else:
-        st.info("🚧 Other modules (Planner, Finance, etc.) under development.")
+        st.info("🚧 Other modules (Planner, Finance, etc.) are under development.")
 
-# Run app
 if __name__ == "__main__":
     main()
