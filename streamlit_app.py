@@ -1,6 +1,6 @@
 # streamlit_app.py
 # 🌐 My Smart Agent – Multi-Agent AI Dashboard
-# Agents: Dashboard, Daily Planner, Finance Tracker, Health & Habit, LearnMate, Memory, Video Summarizer
+# Agents: Dashboard, Daily Planner, Finance Tracker, Health & Habits, LearnMate, Memory, Video Summarizer
 
 import os
 import tempfile
@@ -46,7 +46,8 @@ menu = [
 ]
 choice = st.sidebar.radio("Choose a module", menu)
 lang_choice = st.sidebar.selectbox(
-    "Language", ["English", "Tamil", "Telugu", "Malayalam", "Kannada", "Hindi", "French", "Spanish", "German", "Japanese"]
+    "Language",
+    ["English", "Tamil", "Telugu", "Malayalam", "Kannada", "Hindi", "French", "Spanish", "German", "Japanese"]
 )
 
 # ----------------------------------------------
@@ -102,16 +103,25 @@ def summarize_youtube(video_url, language="English"):
         if not text:
             import yt_dlp
             temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
+
+            # ✅ Explicit ffmpeg/ffprobe path for yt_dlp
+            ffmpeg_dir = os.path.dirname(ffmpeg_path)
             ydl_opts = {
                 "format": "bestaudio/best",
                 "outtmpl": temp_audio,
                 "quiet": True,
-                "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
+                "ffmpeg_location": ffmpeg_dir,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192"
+                }],
             }
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
 
-            # Transcribe using Whisper
+            # ✅ Transcribe using Whisper
             import whisper
             model = whisper.load_model("tiny")
             result = model.transcribe(temp_audio)
