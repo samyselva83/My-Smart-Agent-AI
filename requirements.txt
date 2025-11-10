@@ -1,41 +1,19 @@
-# --- Core Streamlit + Environment ---
 streamlit
 python-dotenv
-
-# --- Groq API client ---
 groq
-
-# --- Video handling & summarization ---
 yt-dlp
 pytube
 youtube-transcript-api==0.6.2
-ffmpeg-python
-imageio[ffmpeg]
-
-# --- Whisper transcription (audio-to-text) ---
 git+https://github.com/openai/whisper.git
 torch
 numpy
 soundfile
-
-# --- NLP / Summarization / LLM Utils ---
-transformers
-sentencepiece
-tiktoken
-
-# --- Data handling for Planner + Finance + Memory agents ---
+ffmpeg-python
+imageio[ffmpeg]
+imageio-ffmpeg
 pandas
 openpyxl
-sqlalchemy
-
-# --- Visualization (for Finance Tracker / Dashboard) ---
-matplotlib
-plotly
-
-# --- General utilities ---
 requests
 beautifulsoup4
-langdetect
-
-# --- Optional safety fallback for ffmpeg ---
-imageio-ffmpeg
+plotly
+matplotlib
