@@ -1,146 +1,153 @@
-# streamlit_app.py
+# video_timestamps_app.py
+# Minimal reliable YouTube details + timestamp extractor (Streamlit)
 import re
 import streamlit as st
 from pytube import YouTube
-import streamlit.components.v1 as components
+import datetime
 
-st.set_page_config(page_title="YouTube Timestamp Jumper", layout="centered")
-st.title("🎯 YouTube — Jump to Timestamps")
+# Try import of youtube_transcript_api with compatibility handling
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
+except Exception:
+    YouTubeTranscriptApi = None
+    TranscriptsDisabled = Exception
 
-# -------------------------
-# Helpers
-# -------------------------
-def extract_video_id(url: str) -> str | None:
+st.set_page_config(page_title="YouTube Timestamp Extractor", layout="wide")
+st.title("🎯 YouTube Timestamp Extractor")
+
+st.markdown(
+    "Paste a YouTube watch URL and — if captions are available — "
+    "this tool will list caption segments and timestamps (click to open YouTube at that time)."
+)
+
+# Input
+video_url = st.text_input("Paste YouTube URL (full watch link):", placeholder="https://www.youtube.com/watch?v=VIDEO_ID")
+fetch_btn = st.button("Get timestamps")
+
+def extract_video_id(url: str):
+    """Extract a YouTube video id from common URL formats."""
     if not url:
         return None
-    # common patterns: watch?v=, youtu.be/, embed/, shorts/
+    # remove parameters after & and fragments
+    url = url.strip()
+    # try several patterns
     patterns = [
-        r"(?:v=|\/)([0-9A-Za-z_-]{11})",   # watch?v= or /...
-        r"youtu\.be\/([0-9A-Za-z_-]{11})",
-        r"embed\/([0-9A-Za-z_-]{11})",
-        r"shorts\/([0-9A-Za-z_-]{11})"
+        r"(?:v=)([0-9A-Za-z_-]{11})",    # watch?v=
+        r"(?:be/)([0-9A-Za-z_-]{11})",   # youtu.be/
+        r"(?:embed/)([0-9A-Za-z_-]{11})",# embed/
+        r"(?:shorts/)([0-9A-Za-z_-]{11})",# shorts/
+        r"^([0-9A-Za-z_-]{11})$"         # raw id
     ]
     for p in patterns:
         m = re.search(p, url)
         if m:
             return m.group(1)
+    # fallback: try to parse after last /
+    parts = url.split("/")
+    last = parts[-1]
+    if len(last) >= 11:
+        return last[:11]
     return None
 
-def parse_timestamp(ts: str) -> int | None:
-    """Parse SS, MM:SS, or HH:MM:SS into seconds. Return None if invalid."""
-    ts = ts.strip()
-    if not ts:
-        return None
-    # all-digits -> seconds
-    if re.fullmatch(r"\d+", ts):
-        return int(ts)
-    parts = ts.split(":")
-    if len(parts) > 3:
-        return None
-    try:
-        parts = list(map(int, parts))
-    except ValueError:
-        return None
-    # normalize to seconds
-    if len(parts) == 1:
-        return parts[0]
-    elif len(parts) == 2:
-        return parts[0] * 60 + parts[1]
-    elif len(parts) == 3:
-        return parts[0] * 3600 + parts[1] * 60 + parts[2]
-    return None
+def seconds_to_hms(s: float) -> str:
+    s = int(round(s))
+    return str(datetime.timedelta(seconds=s))
 
-def pretty_time(sec: int) -> str:
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    s = sec % 60
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m}:{s:02d}"
-
-def embed_youtube_js(video_id: str, width:int=800, height:int=450):
-    """Return HTML for iframe with JS jump function using iframe src reset (works cross-origin)."""
-    src = f"https://www.youtube.com/embed/{video_id}?rel=0&enablejsapi=1"
-    html = f"""
-    <div>
-      <iframe id="ytplayer" width="{width}" height="{height}" src="{src}" frameborder="0"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-    </div>
-    <script>
-      function jumpTo(t){{
-        // change iframe src to include start param to jump and autoplay
-        var iframe = document.getElementById('ytplayer');
-        iframe.src = "https://www.youtube.com/embed/{video_id}?start=" + Math.floor(t) + "&autoplay=1&rel=0&enablejsapi=1";
-      }}
-    </script>
+def fetch_captions(video_id: str, lang_priority: list = ["en"]):
     """
-    return html
-
-# -------------------------
-# UI: input
-# -------------------------
-col1, col2 = st.columns([3,1])
-with col1:
-    youtube_url = st.text_input("YouTube URL (full link or short link)", placeholder="https://www.youtube.com/watch?v=VIDEO_ID")
-with col2:
-    st.write("Example timestamps")
-    st.write("`30`, `1:23`, `00:02:15`")
-
-st.markdown("Enter timestamps (comma or newline separated). Accepted formats: `SS`, `MM:SS`, `HH:MM:SS`")
-timestamps_raw = st.text_area("Timestamps", placeholder="0:30, 1:23, 2:00\n90", height=120)
-
-if st.button("Show timestamps"):
-    video_id = extract_video_id(youtube_url)
-    if not video_id:
-        st.error("❌ Could not extract YouTube video id from the provided URL. Provide a full YouTube link (watch?v=...) or a short youtu.be link.")
-    else:
-        # try to get some metadata (title) safely
-        title = "Unknown title"
+    Attempt to fetch captions with compatibility for different youtube_transcript_api versions.
+    Returns list of segments: [{'start': float, 'duration': float, 'text': str}, ...]
+    Raises Exception with message if cannot fetch.
+    """
+    if YouTubeTranscriptApi is None:
+        raise Exception("youtube_transcript_api library not installed in environment.")
+    # try modern API first, otherwise fallback to older methods
+    try:
+        # prefer list_transcripts if available
+        if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            # try to find transcript in preferred languages
+            for lang in lang_priority:
+                try:
+                    t = transcript_list.find_transcript([lang])
+                    segs = t.fetch()
+                    return segs
+                except Exception:
+                    continue
+            # if no preferred languages found, try first available
+            try:
+                first = transcript_list.find_transcript(transcript_list._transcripts.keys())
+                return first.fetch()
+            except Exception:
+                # last resort: list_transcripts returns transcripts but fetch failed
+                pass
+        # fallback: older method
         try:
-            yt = YouTube(youtube_url)
-            title = yt.title
-        except Exception:
-            pass
+            segs = YouTubeTranscriptApi.get_transcript(video_id)
+            return segs
+        except Exception as e:
+            raise Exception(f"Could not retrieve transcript: {e}")
+    except TranscriptsDisabled:
+        raise Exception("Subtitles are disabled for this video.")
+    except Exception as e:
+        raise Exception(f"Transcript fetch failed: {e}")
 
-        st.subheader(f"🎥 {title}")
-        # Embed player
-        components.html(embed_youtube_js(video_id, width=800, height=450), height=480)
-
-        # parse timestamps
-        raw_list = re.split(r"[,\n;]+", timestamps_raw.strip()) if timestamps_raw and timestamps_raw.strip() else []
-        parsed = []
-        errors = []
-        for item in raw_list:
-            if not item.strip():
-                continue
-            sec = parse_timestamp(item)
-            if sec is None:
-                errors.append(item)
-            else:
-                parsed.append((item.strip(), sec))
-
-        if errors:
-            st.error(f"Invalid timestamp formats (ignored): {', '.join(errors)}")
-
-        if not parsed:
-            st.info("No valid timestamps found. Enter timestamps like `30`, `1:23`, or `0:02:15`.")
+if fetch_btn:
+    if not video_url:
+        st.error("Please paste a YouTube watch URL.")
+    else:
+        vid = extract_video_id(video_url)
+        if not vid:
+            st.error("Could not extract a video id from the provided URL. Please check the URL.")
         else:
-            st.markdown("### ⏱️ Clickable timestamps (jump the embedded player)")
-            # show as links and buttons
-            for label, sec in parsed:
-                pretty = pretty_time(sec)
-                # two actions: button to jump iframe (JS), and open in new tab
-                colA, colB = st.columns([3,1])
-                with colA:
-                    # clickable anchor calling JS jumpTo
-                    st.markdown(f"<a href='#' onclick='jumpTo({sec});return false;'>🔘 {pretty} — {label}</a>", unsafe_allow_html=True)
-                with colB:
-                    yt_link = f"https://www.youtube.com/watch?v={video_id}&t={sec}s"
-                    st.markdown(f"[↗ open]({yt_link})")
+            st.info(f"Video ID: `{vid}` — fetching metadata...")
+            # fetch metadata via pytube (safe)
+            try:
+                yt = YouTube(f"https://www.youtube.com/watch?v={vid}")
+                st.subheader("Video details")
+                st.write("**Title:**", yt.title)
+                st.write("**Channel:**", yt.author)
+                try:
+                    st.write("**Duration:**", f"{yt.length//60}m {yt.length%60}s")
+                except Exception:
+                    pass
+                # show thumbnail if available
+                try:
+                    st.image(yt.thumbnail_url, width=480)
+                except Exception:
+                    pass
+            except Exception as e:
+                st.warning(f"Could not fetch some metadata: {e}")
 
-            st.markdown("---")
-            st.caption("Tip: Use multiple timestamps separated by commas or new lines. Clicking a timestamp sets the player to that time and starts playback.")
-
-# Footer
-st.markdown("---")
-st.caption("Built for extracting and jumping to YouTube timestamps — minimal and robust.")
+            st.info("Attempting to fetch captions (English preferred)...")
+            try:
+                segments = fetch_captions(vid, lang_priority=["en", "en-US", "en-GB"])
+                if not segments or len(segments) == 0:
+                    st.warning("No caption segments returned.")
+                else:
+                    st.success(f"Found {len(segments)} caption segments. Showing first 200 segments (if any).")
+                    # show as a table with clickable links
+                    rows = []
+                    for i, seg in enumerate(segments[:200]):  # limit to 200 segments for UI safety
+                        start = float(seg.get("start", 0.0))
+                        dur = float(seg.get("duration", 0.0))
+                        text = seg.get("text", "").strip()
+                        hms = seconds_to_hms(start)
+                        # link to YouTube with t=seconds
+                        link = f"https://www.youtube.com/watch?v={vid}&t={int(start)}s"
+                        rows.append((i+1, hms, f"{int(dur)}s", text, link))
+                    # display as interactive
+                    st.markdown("### Caption segments (click timestamp to open YouTube at that moment)")
+                    for idx, hms, dur, text, link in rows:
+                        st.markdown(f"- [{hms}]({link}) — ({dur})  —  {st.write(text) if False else text}")
+                    # also provide downloadable CSV
+                    import csv, io
+                    csv_buf = io.StringIO()
+                    writer = csv.writer(csv_buf)
+                    writer.writerow(["index","start_hms","duration_s","text","youtube_link"])
+                    for r in rows:
+                        writer.writerow(r)
+                    st.download_button("Download segments as CSV", data=csv_buf.getvalue(), file_name=f"{vid}_captions.csv", mime="text/csv")
+            except Exception as e:
+                st.error(f"Could not fetch captions: {e}\n\nNote: many videos do not expose captions via API. If captions aren't available, this tool cannot extract timestamps from speech.")
+                    
