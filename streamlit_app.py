@@ -6,16 +6,20 @@ import re
 st.set_page_config(page_title="🎯 YouTube Timestamp Extractor", page_icon="🎬", layout="centered")
 
 st.title("🎯 YouTube Timestamp Extractor")
-st.write("Paste a YouTube video URL below — this tool extracts caption timestamps if available.")
+st.write(
+    "Paste a YouTube video URL below — if captions are available, "
+    "this tool will list caption segments with clickable timestamps."
+)
 
 # Input URL
 url = st.text_input("📺 Paste YouTube URL (full link):", placeholder="https://www.youtube.com/watch?v=VIDEO_ID")
 
 def extract_video_id(link):
+    """Extract YouTube video ID from URL"""
     match = re.search(r"(?:v=|be/)([0-9A-Za-z_-]{11})", link)
     return match.group(1) if match else None
 
-# When user submits
+
 if st.button("🔍 Get timestamps"):
     if not url.strip():
         st.warning("Please paste a valid YouTube URL.")
@@ -24,9 +28,9 @@ if st.button("🔍 Get timestamps"):
         if not video_id:
             st.error("Invalid YouTube URL — cannot extract video ID.")
         else:
-            st.info(f"Fetching video details for ID: `{video_id}` ...")
+            st.info(f"Fetching details for video ID: `{video_id}` ...")
 
-            # --- Step 1: Try fetching metadata safely ---
+            # Step 1: Metadata using yt_dlp
             try:
                 ydl_opts = {'quiet': True, 'skip_download': True}
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -37,9 +41,9 @@ if st.button("🔍 Get timestamps"):
                     thumbnail = info.get("thumbnail", None)
             except Exception as e:
                 title, uploader, duration, thumbnail = "Unknown Title", "Unknown Channel", 0, None
-                st.warning(f"⚠️ Could not fetch full metadata: {e}")
+                st.warning(f"⚠️ Could not fetch some metadata: {str(e)[:200]}")
 
-            # --- Display video info ---
+            # Display video details
             st.subheader("🎥 Video Details")
             st.markdown(f"**Title:** {title}")
             st.markdown(f"**Uploader:** {uploader}")
@@ -47,31 +51,41 @@ if st.button("🔍 Get timestamps"):
             if thumbnail:
                 st.image(thumbnail, use_container_width=True)
 
-            # --- Step 2: Try fetching captions ---
+            # Step 2: Try fetching captions
             st.info("🗒️ Attempting to fetch captions (English preferred)...")
 
             try:
                 transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
                 transcript = None
+
+                # Prefer English captions
                 for tr in transcripts:
-                    if tr.language_code.startswith("en"):
+                    if "en" in tr.language_code:
                         transcript = tr.fetch()
                         break
+
                 if not transcript:
-                    transcript = transcripts.find_manually_created_transcript(["en"]).fetch()
+                    st.warning("⚠️ No English captions found. Trying any available language...")
+                    transcript = transcripts.find_transcript(transcripts._manually_created_transcripts.keys()).fetch()
 
-                # --- Step 3: Display timestamps ---
-                st.success("✅ Captions fetched successfully!")
-                st.subheader("🕒 Caption Segments with Clickable Timestamps")
+                # Step 3: Display clickable timestamps
+                if transcript:
+                    st.success("✅ Captions fetched successfully!")
+                    st.subheader("🕒 Caption Segments with Clickable Timestamps")
 
-                for seg in transcript:
-                    start = int(seg['start'])
-                    text = seg['text']
-                    link = f"https://www.youtube.com/watch?v={video_id}&t={start}s"
-                    st.markdown(f"[{start//60}:{start%60:02d}] → [{text}]({link})")
+                    for seg in transcript:
+                        start = int(seg["start"])
+                        text = seg["text"]
+                        link = f"https://www.youtube.com/watch?v={video_id}&t={start}s"
+                        st.markdown(f"[{start//60}:{start%60:02d}] → [{text}]({link})")
+                else:
+                    st.error("❌ No captions found for this video.")
 
             except (TranscriptsDisabled, NoTranscriptFound):
-                st.error("❌ Captions not available for this video.")
+                st.error("❌ This video has no captions available (disabled or auto-subtitles not public).")
             except Exception as e:
-                st.error(f"⚠️ Transcript fetch failed: {e}")
-    
+                if "no element found" in str(e):
+                    st.error("⚠️ Could not fetch captions: Captions may be disabled or the API cannot access this video.")
+                else:
+                    st.error(f"❌ Transcript fetch failed: {str(e)[:200]}")
+                        
