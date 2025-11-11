@@ -1,180 +1,146 @@
-# streamlit_app.py — My Smart Agent (Video Summarizer + Timestamp Highlighter)
-# ✅ Groq API Stable Version for Streamlit Cloud
-
-import os, re
+# streamlit_app.py
+import re
 import streamlit as st
 from pytube import YouTube
-from datetime import timedelta
-import imageio_ffmpeg
-from groq import Groq
+import streamlit.components.v1 as components
 
-# Optional: handle YouTube transcript API safely
-try:
-    from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
-except ImportError:
-    YouTubeTranscriptApi = None
-    TranscriptsDisabled = Exception
+st.set_page_config(page_title="YouTube Timestamp Jumper", layout="centered")
+st.title("🎯 YouTube — Jump to Timestamps")
 
-# --------------------------------------------------------
-# 🔧 Configure FFmpeg (works on Streamlit Cloud)
-# --------------------------------------------------------
-os.environ["PATH"] += os.pathsep + os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
-st.info(f"✅ FFmpeg registered: {imageio_ffmpeg.get_ffmpeg_exe()}")
+# -------------------------
+# Helpers
+# -------------------------
+def extract_video_id(url: str) -> str | None:
+    if not url:
+        return None
+    # common patterns: watch?v=, youtu.be/, embed/, shorts/
+    patterns = [
+        r"(?:v=|\/)([0-9A-Za-z_-]{11})",   # watch?v= or /...
+        r"youtu\.be\/([0-9A-Za-z_-]{11})",
+        r"embed\/([0-9A-Za-z_-]{11})",
+        r"shorts\/([0-9A-Za-z_-]{11})"
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
 
-# --------------------------------------------------------
-# 🔑 Groq API setup
-# --------------------------------------------------------
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", None)
-if not GROQ_API_KEY:
-    st.warning("⚠️ Please add your GROQ_API_KEY in Streamlit → Settings → Secrets")
-client = Groq(api_key=GROQ_API_KEY)
-
-# --------------------------------------------------------
-# ⏱️ Helper to convert timestamps
-# --------------------------------------------------------
-def convert_to_seconds(time_str):
-    """Convert 00:00:00 format to total seconds."""
-    parts = list(map(int, time_str.split(":")))
-    if len(parts) == 3:
-        h, m, s = parts
+def parse_timestamp(ts: str) -> int | None:
+    """Parse SS, MM:SS, or HH:MM:SS into seconds. Return None if invalid."""
+    ts = ts.strip()
+    if not ts:
+        return None
+    # all-digits -> seconds
+    if re.fullmatch(r"\d+", ts):
+        return int(ts)
+    parts = ts.split(":")
+    if len(parts) > 3:
+        return None
+    try:
+        parts = list(map(int, parts))
+    except ValueError:
+        return None
+    # normalize to seconds
+    if len(parts) == 1:
+        return parts[0]
     elif len(parts) == 2:
-        h, m, s = 0, parts[0], parts[1]
+        return parts[0] * 60 + parts[1]
+    elif len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return None
+
+def pretty_time(sec: int) -> str:
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+def embed_youtube_js(video_id: str, width:int=800, height:int=450):
+    """Return HTML for iframe with JS jump function using iframe src reset (works cross-origin)."""
+    src = f"https://www.youtube.com/embed/{video_id}?rel=0&enablejsapi=1"
+    html = f"""
+    <div>
+      <iframe id="ytplayer" width="{width}" height="{height}" src="{src}" frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+    <script>
+      function jumpTo(t){{
+        // change iframe src to include start param to jump and autoplay
+        var iframe = document.getElementById('ytplayer');
+        iframe.src = "https://www.youtube.com/embed/{video_id}?start=" + Math.floor(t) + "&autoplay=1&rel=0&enablejsapi=1";
+      }}
+    </script>
+    """
+    return html
+
+# -------------------------
+# UI: input
+# -------------------------
+col1, col2 = st.columns([3,1])
+with col1:
+    youtube_url = st.text_input("YouTube URL (full link or short link)", placeholder="https://www.youtube.com/watch?v=VIDEO_ID")
+with col2:
+    st.write("Example timestamps")
+    st.write("`30`, `1:23`, `00:02:15`")
+
+st.markdown("Enter timestamps (comma or newline separated). Accepted formats: `SS`, `MM:SS`, `HH:MM:SS`")
+timestamps_raw = st.text_area("Timestamps", placeholder="0:30, 1:23, 2:00\n90", height=120)
+
+if st.button("Show timestamps"):
+    video_id = extract_video_id(youtube_url)
+    if not video_id:
+        st.error("❌ Could not extract YouTube video id from the provided URL. Provide a full YouTube link (watch?v=...) or a short youtu.be link.")
     else:
-        return 0
-    return h * 3600 + m * 60 + s
+        # try to get some metadata (title) safely
+        title = "Unknown title"
+        try:
+            yt = YouTube(youtube_url)
+            title = yt.title
+        except Exception:
+            pass
 
-# --------------------------------------------------------
-# 🤖 Groq Summarization (fixed model)
-# --------------------------------------------------------
-def summarize_text_groq(text, language="English"):
-    """Summarize transcript text using Groq API (llama-3.2-3b-preview)."""
-    if not text or len(text.strip()) == 0:
-        return "⚠️ No transcript text found to summarize."
+        st.subheader(f"🎥 {title}")
+        # Embed player
+        components.html(embed_youtube_js(video_id, width=800, height=450), height=480)
 
-    try:
-        prompt = (
-            f"Summarize the following YouTube transcript in {language}. "
-            f"Highlight important moments and timestamps where possible:\n\n{text[:5000]}"
-        )
+        # parse timestamps
+        raw_list = re.split(r"[,\n;]+", timestamps_raw.strip()) if timestamps_raw and timestamps_raw.strip() else []
+        parsed = []
+        errors = []
+        for item in raw_list:
+            if not item.strip():
+                continue
+            sec = parse_timestamp(item)
+            if sec is None:
+                errors.append(item)
+            else:
+                parsed.append((item.strip(), sec))
 
-        # ✅ Use valid model (as of Nov 2025)
-        response = client.chat.completions.create(
-            model="mixtral-8x7b-32768",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            max_tokens=900,
-        )
+        if errors:
+            st.error(f"Invalid timestamp formats (ignored): {', '.join(errors)}")
 
-        if hasattr(response, "choices") and response.choices:
-            return response.choices[0].message.content.strip()
-        return "⚠️ Groq returned an empty response. Try again."
-
-    except Exception as e:
-        return f"Groq summarization error: {e}"
-
-# --------------------------------------------------------
-# 📜 Transcript Extraction
-# --------------------------------------------------------
-def get_youtube_transcript(video_id, lang="en"):
-    """Fetch transcript using YouTubeTranscriptApi with backward compatibility."""
-    if YouTubeTranscriptApi is None:
-        raise Exception("YouTubeTranscriptApi not available in this environment.")
-
-    try:
-        if hasattr(YouTubeTranscriptApi, "list_transcripts"):
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            transcript = transcript_list.find_transcript([lang])
-            data = transcript.fetch()
+        if not parsed:
+            st.info("No valid timestamps found. Enter timestamps like `30`, `1:23`, or `0:02:15`.")
         else:
-            data = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
-        text = " ".join([x["text"] for x in data])
-        return text
-    except TranscriptsDisabled:
-        raise Exception("Subtitles are disabled for this video.")
-    except Exception as e:
-        raise Exception(f"Transcript fetch failed: {e}")
+            st.markdown("### ⏱️ Clickable timestamps (jump the embedded player)")
+            # show as links and buttons
+            for label, sec in parsed:
+                pretty = pretty_time(sec)
+                # two actions: button to jump iframe (JS), and open in new tab
+                colA, colB = st.columns([3,1])
+                with colA:
+                    # clickable anchor calling JS jumpTo
+                    st.markdown(f"<a href='#' onclick='jumpTo({sec});return false;'>🔘 {pretty} — {label}</a>", unsafe_allow_html=True)
+                with colB:
+                    yt_link = f"https://www.youtube.com/watch?v={video_id}&t={sec}s"
+                    st.markdown(f"[↗ open]({yt_link})")
 
-# --------------------------------------------------------
-# 🎬 Video Summarizer UI
-# --------------------------------------------------------
-def video_summarizer_ui():
-    st.title("🎬 Video Summarizer — Multilingual AI Highlights")
-    st.caption("Summarizes YouTube videos with timestamps and language translation support.")
+            st.markdown("---")
+            st.caption("Tip: Use multiple timestamps separated by commas or new lines. Clicking a timestamp sets the player to that time and starts playback.")
 
-    # --- Inputs ---
-    video_url = st.text_input("📺 Paste YouTube URL", placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-    lang_choice = st.selectbox("🌍 Choose summary language", ["English", "Tamil", "Hindi", "Spanish", "French", "German"])
-
-    # --- Main action ---
-    if st.button("✨ Summarize Video"):
-        if not video_url:
-            st.error("Please enter a valid YouTube URL.")
-            return
-
-        with st.spinner("Fetching video info and captions..."):
-            try:
-                yt = YouTube(video_url)
-                video_id = yt.video_id
-                title = yt.title
-                channel = yt.author
-                duration = str(timedelta(seconds=yt.length))
-                thumb = yt.thumbnail_url
-
-                st.image(thumb, caption=f"🎞️ {title} — {channel} ({duration})")
-
-                # Try to fetch transcript
-                try:
-                    st.info("Attempting to fetch YouTube transcript...")
-                    transcript = get_youtube_transcript(video_id, lang="en")
-                    st.success("✅ Transcript fetched successfully.")
-                except Exception as e:
-                    st.warning(f"Transcript not available: {e}")
-                    transcript = None
-
-                if not transcript:
-                    st.error("❌ No transcript found — please try a different video with captions.")
-                    return
-
-                # Summarize via Groq
-                st.info("🧠 Generating AI summary using Groq...")
-                summary = summarize_text_groq(transcript, lang_choice)
-
-                # Make timestamps clickable
-                summary = re.sub(
-                    r'(\b\d{1,2}:\d{2}(?::\d{2})?)',
-                    lambda m: f"[{m.group(1)}](https://www.youtube.com/watch?v={video_id}&t={convert_to_seconds(m.group(1))}s)",
-                    summary,
-                )
-
-                # Display output
-                st.subheader("🧠 AI Summary")
-                st.markdown(summary)
-
-            except Exception as e:
-                st.error(f"❌ Error while summarizing: {e}")
-
-# --------------------------------------------------------
-# 🧭 Sidebar Navigation
-# --------------------------------------------------------
-def main():
-    st.sidebar.title("🧭 My Smart Agent Menu")
-    choice = st.sidebar.radio(
-        "Choose a module",
-        [
-            "Dashboard",
-            "Daily Planner (AI)",
-            "Finance Tracker",
-            "Health & Habits",
-            "LearnMate",
-            "Memory",
-            "Video Summarizer",
-        ],
-    )
-
-    if choice == "Video Summarizer":
-        video_summarizer_ui()
-    else:
-        st.info("🚧 Other modules (Planner, Finance, etc.) are under development.")
-
-if __name__ == "__main__":
-    main()
+# Footer
+st.markdown("---")
+st.caption("Built for extracting and jumping to YouTube timestamps — minimal and robust.")
