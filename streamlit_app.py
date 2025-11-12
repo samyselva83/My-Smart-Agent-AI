@@ -1,18 +1,17 @@
 import streamlit as st
 import re, os, tempfile, glob, shutil
 import yt_dlp
+from groq import Groq
 from collections import OrderedDict
-from groq import Groq  # ✅ use Groq instead of OpenAI
 
 # ------------------------------------------------------------
-# Groq client initialization
+# Initialize Groq client
 # ------------------------------------------------------------
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-except Exception as e:
+except Exception:
     client = None
-    st.error("⚠️ Groq API Key not found. Please add it in Streamlit Secrets as GROQ_API_KEY.")
-
+    st.error("⚠️ Groq API key missing. Please add GROQ_API_KEY in Streamlit Secrets.")
 
 try:
     from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
@@ -23,7 +22,7 @@ except Exception:
 
 
 # ------------------------------------------------------------
-# Utility functions
+# Utility Functions
 # ------------------------------------------------------------
 def extract_video_id(url: str):
     m = re.search(r"(?:v=|be/)([0-9A-Za-z_-]{11})", url)
@@ -31,7 +30,7 @@ def extract_video_id(url: str):
 
 
 def try_transcript_api(video_id):
-    """Fetch transcript from YouTube API"""
+    """Try fetching transcript using YouTubeTranscriptApi"""
     if YouTubeTranscriptApi is None:
         return None, "Transcript API not available"
     try:
@@ -68,7 +67,7 @@ def try_yt_dlp_subtitles(video_url, video_id):
 
 
 def parse_vtt(vtt_path):
-    """Extract text from .vtt captions"""
+    """Parse .vtt captions"""
     text = open(vtt_path, "r", encoding="utf-8", errors="ignore").read()
     text = re.sub(r"WEBVTT.*\n", "", text)
     blocks = re.split(r"\n\s*\n", text.strip())
@@ -90,7 +89,7 @@ def parse_vtt(vtt_path):
 
 
 def clean_transcript_text(segs):
-    """Combine and clean transcript"""
+    """Combine and clean text"""
     all_text = " ".join([s["text"] for s in segs])
     all_text = re.sub(r"\b(\w+)( \1\b)+", r"\1", all_text)
     all_text = re.sub(r"\s+", " ", all_text)
@@ -98,21 +97,22 @@ def clean_transcript_text(segs):
 
 
 # ------------------------------------------------------------
-# Groq Summarization
+# Summarization via Groq
 # ------------------------------------------------------------
-def summarize_text_with_groq(clean_text):
-    """Generate short, clean summary using Groq API"""
+def summarize_text_with_groq(clean_text, language="English"):
+    """Summarize YouTube transcript in selected language"""
     if not client:
         return "⚠️ Groq API not configured."
     try:
         prompt = (
-            "Summarize this YouTube video transcript in about 100–150 words. "
-            "Focus only on the main ideas, key takeaways, and important topics. "
-            "Avoid repetition or timestamps.\n\nTranscript:\n"
-            f"{clean_text[:7000]}"
+            f"Summarize the following YouTube transcript in about 120 words. "
+            f"The summary must be written in **{language}**. "
+            "Focus on the main ideas, purpose, and topics. "
+            "Avoid repetition, timestamps, or filler text.\n\n"
+            f"Transcript:\n{clean_text[:7000]}"
         )
         resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",  # ✅ stable, fast Groq model
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
         )
@@ -128,7 +128,7 @@ st.set_page_config(page_title="🤖 My Smart Agent", page_icon="🧠", layout="w
 
 st.sidebar.title("🧭 Navigation")
 choice = st.sidebar.radio(
-    "Select a Module:",
+    "Select Module:",
     [
         "🗓️ Daily Planner (AI)",
         "💵 Finance Tracker",
@@ -139,20 +139,36 @@ choice = st.sidebar.radio(
     ],
 )
 
-# --- Other Modules Placeholder
 if choice != "🎥 Video Summary":
     st.title(choice)
     st.info("✨ This module is under development.")
 else:
-    # --- YouTube Summarizer Section
-    st.title("🎥 YouTube Video Summarizer + Key Highlights")
+    st.title("🎥 YouTube Video Summarizer + Multilingual Highlights")
+
     url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=VIDEO_ID")
 
-    if st.button("🚀 Generate Summary"):
+    lang = st.selectbox(
+        "🌍 Select Summary Language:",
+        [
+            "English",
+            "Tamil",
+            "Telugu",
+            "Malayalam",
+            "Kannada",
+            "Hindi",
+            "French",
+            "Spanish",
+            "German",
+            "Japanese",
+        ],
+        index=0,
+    )
+
+    if st.button("🚀 Generate Multilingual Summary"):
         if not url.strip():
             st.warning("Please paste a valid YouTube link.")
         else:
-            with st.spinner("🔍 Fetching transcript and generating summary..."):
+            with st.spinner("⏳ Fetching transcript and generating summary..."):
                 video_id = extract_video_id(url)
                 if not video_id:
                     st.error("Invalid YouTube URL.")
@@ -168,14 +184,15 @@ else:
                             segs = None
 
                     if not segs:
-                        st.warning("⚠️ No captions found or video doesn’t support transcripts.")
+                        st.warning("⚠️ No captions found or unavailable.")
                     else:
                         clean_text = clean_transcript_text(segs)
-                        summary = summarize_text_with_groq(clean_text)
-                        st.subheader("🧠 AI-Generated Summary")
+                        summary = summarize_text_with_groq(clean_text, lang)
+
+                        st.subheader(f"🧠 AI Summary ({lang})")
                         st.write(summary)
 
-                        # --- Key Timestamps
+                        # Key timestamps
                         st.markdown("---")
                         st.subheader("🕒 Key Highlights")
                         n = len(segs)
@@ -189,4 +206,4 @@ else:
                             yt_link = f"https://www.youtube.com/watch?v={video_id}&t={total}s"
                             st.markdown(f"- [{m:02d}:{sec:02d}] → [{labels[i]}]({yt_link})")
 
-    st.caption("⚙️ Built by Selva Kumar — powered by Groq API. Works for caption-enabled videos only.")
+    st.caption("⚙️ Built by Selva Kumar — multilingual summarization powered by Groq API.")
