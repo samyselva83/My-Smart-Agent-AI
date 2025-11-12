@@ -187,27 +187,25 @@ module = st.sidebar.radio(
     ]
 )
 # ------------------------------------------------------------
-# 🎥 VIDEO SUMMARIZER (Clean Paragraph Summary + Key Moments)
+# 🎥 YouTube Video Smart Summarizer + Key Timestamps (Final)
 # ------------------------------------------------------------
 
 if module == "🎥 Video Summary":
     st.title("🎥 AI Video Summarizer + Key Highlights")
-    st.markdown("Paste a YouTube URL to generate a **clean, short AI-generated summary** and **key video timestamps.**")
+    st.markdown("Paste a YouTube link — get a **clean AI-written summary** and clickable **key moments.**")
 
     url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=gqQ8fMbXKHE")
 
-    if st.button("🚀 Generate AI Summary"):
+    if st.button("🚀 Generate Smart Summary"):
         if not url.strip():
             st.warning("Please paste a valid YouTube link.")
         else:
-            with st.spinner("Fetching transcript and generating summary..."):
+            with st.spinner("⏳ Fetching and analyzing video..."):
                 video_id = extract_video_id(url)
                 if not video_id:
-                    st.error("Invalid YouTube URL format.")
+                    st.error("Invalid YouTube URL.")
                 else:
                     segs, err = try_transcript_api(video_id)
-
-                    # fallback to yt-dlp subtitles
                     if not segs:
                         vtt_path, err2, tmpdir = try_yt_dlp_subtitles(url, video_id)
                         if vtt_path:
@@ -220,73 +218,70 @@ if module == "🎥 Video Summary":
                             st.error(f"❌ Could not fetch subtitles: {err2}")
                             segs = None
 
-                    if err:
-                        st.warning(f"⚠️ {err}")
-
-                    if not segs or not isinstance(segs, list):
-                        st.error("Transcript could not be parsed correctly.")
+                    if not segs:
+                        st.error("⚠️ No transcript data available.")
                     else:
-                        # 🧹 Clean transcript
-                        cleaned_lines = []
+                        # --- Clean transcript ---
+                        text_parts = []
                         for s in segs:
-                            txt = s.get("text", "")
-                            txt = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3}", "", txt)
-                            txt = re.sub(r"align:start|position:\d+%|<[^>]+>", "", txt)
-                            txt = re.sub(r"[^A-Za-z0-9.,!? ]+", " ", txt)
-                            txt = re.sub(r"\s+", " ", txt).strip()
-                            if txt and txt not in cleaned_lines:
-                                cleaned_lines.append(txt)
+                            txt = re.sub(r'<[^>]+>|align:start|position:\d+%', '', s.get("text", ""))
+                            txt = re.sub(r'[^A-Za-z0-9.,?! ]+', ' ', txt)
+                            txt = re.sub(r'\s+', ' ', txt).strip()
+                            if txt and len(txt.split()) > 2:
+                                text_parts.append(txt)
 
-                        # merge & clean duplicates/repetitions
-                        full_text = " ".join(cleaned_lines)
-                        full_text = re.sub(r"\b(\w+)( \1\b)+", r"\1", full_text)  # remove word repetitions
-                        full_text = re.sub(r"(?:\b\w{1,2}\b\s*){3,}", " ", full_text)  # remove stray short words
-                        full_text = re.sub(r"\s+", " ", full_text).strip()
+                        full_text = " ".join(text_parts)
+                        # Remove repetitions (like "Lang Lang Lang")
+                        full_text = re.sub(r'\b(\w+)( \1\b)+', r'\1', full_text)
+                        # Shorten to avoid token overflow
+                        snippet = full_text[:4000]
 
-                        # shorten transcript for summarization
-                        short_text = full_text[:4000]
-
-                        # 🧠 AI Summary (clean, paragraph only)
-                        st.subheader("🧠 AI-generated video summary")
+                        # --- Generate summary ---
+                        st.subheader("🧠 AI-Generated Video Summary")
                         st.caption("Quality and accuracy may vary.")
-
-                        summary_prompt = (
-                            "Summarize this YouTube transcript into ONE short paragraph (3–5 sentences). "
-                            "Focus on main topic, key points, and outcome. "
-                            "Avoid repeating words, timestamps, or filler phrases. "
-                            "Output should sound like a short professional course description.\n\n"
-                            f"Transcript:\n{short_text}"
-                        )
-
-                        try:
-                            if client:
+                        if client:
+                            try:
+                                prompt = (
+                                    "You are a professional educational video summarizer. "
+                                    "Write a concise summary (3–5 sentences, ≤120 words) "
+                                    "describing the video’s key ideas, tone, and learning outcome. "
+                                    "Avoid repetition and technical noise. "
+                                    "Example style:\n"
+                                    "'This video introduces the fundamentals of Generative AI, "
+                                    "including key differences between traditional and generative models. "
+                                    "The instructor explains machine learning, neural networks, and language models with practical examples.'\n\n"
+                                    f"Transcript:\n{snippet}"
+                                )
                                 resp = client.chat.completions.create(
                                     model="gpt-4o-mini",
-                                    messages=[{"role": "user", "content": summary_prompt}],
                                     temperature=0.4,
+                                    messages=[
+                                        {"role": "system", "content": "You summarize YouTube educational content."},
+                                        {"role": "user", "content": prompt},
+                                    ],
                                 )
-                                summary_text = resp.choices[0].message.content.strip()
-                            else:
-                                sentences = re.split(r'[.!?]', short_text)
-                                summary_text = ". ".join(sentences[:3]) + "..."
-                        except Exception as e:
-                            summary_text = f"⚠️ Summarization error: {e}"
+                                summary = resp.choices[0].message.content.strip()
+                            except Exception as e:
+                                summary = f"⚠️ Summarization error: {e}"
+                        else:
+                            # fallback
+                            sentences = re.split(r'[.!?]', snippet)
+                            summary = ". ".join(sentences[:3]) + "..."
 
-                        st.markdown(summary_text)
+                        st.markdown(summary)
 
-                        # 🕒 Key timestamps
+                        # --- Key timestamps ---
                         st.markdown("---")
                         st.subheader("🕒 Key Moments")
-
                         n = len(segs)
-                        jump_points = [0, int(n / 4), int(n / 2), int(3 * n / 4), n - 1]
-                        labels = ["Introduction", "Core Idea", "Example", "Summary", "Conclusion"]
+                        step = max(1, n // 5)
+                        points = segs[::step][:5]
+                        labels = ["Introduction", "Main Topic", "Key Example", "Insight", "Conclusion"]
 
-                        for i, idx in enumerate(jump_points[:len(labels)]):
-                            s = segs[idx]
-                            start_time = s["start"].split(".")[0]
+                        for i, s in enumerate(points):
+                            start = s["start"].split(".")[0]
                             try:
-                                h, m, s_ = map(int, start_time.split(":"))
+                                h, m, s_ = map(int, start.split(":"))
                             except:
                                 h, m, s_ = 0, 0, 0
                             total = h * 3600 + m * 60 + s_
@@ -295,7 +290,7 @@ if module == "🎥 Video Summary":
                             st.markdown(f"- {m:02d}:{s_:02d} → [{label}]({yt_link})")
 
     st.markdown("---")
-    st.caption("Built by Selva Kumar | Streamlit AI Video Summarizer")
+    st.caption("🎯 Built by Selva Kumar | AI-powered video summarizer (Streamlit Cloud)")
 
 # ------------------------------------------------------------
 # 📋 PLACEHOLDER MODULES
