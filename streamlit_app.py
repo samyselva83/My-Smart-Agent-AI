@@ -186,18 +186,13 @@ module = st.sidebar.radio(
         "🎥 Video Summary"
     ]
 )
-
 # ------------------------------------------------------------
-# 🎥 VIDEO SUMMARY MODULE
-# ------------------------------------------------------------
-
-# ------------------------------------------------------------
-# 🎥 VIDEO SUMMARY MODULE
+# 🎥 VIDEO SUMMARIZER (Concise Summary + Key Moments)
 # ------------------------------------------------------------
 
 if module == "🎥 Video Summary":
     st.title("🎥 YouTube Video Summarizer + Timestamp Highlights")
-    st.markdown("Paste a YouTube URL to get an **AI-generated short summary** and **simplified timestamps** with clickable moments.")
+    st.markdown("Paste a YouTube URL to get an **AI-generated short summary** and **simplified key timestamps** with clickable moments.")
 
     url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=d4yCWBGFCEs")
 
@@ -230,21 +225,24 @@ if module == "🎥 Video Summary":
                     if not segs or not isinstance(segs, list) or not all(isinstance(s, dict) and 'text' in s for s in segs):
                         st.error("Transcript could not be parsed correctly.")
                     else:
-                        # ✅ Clean and merge segments
+                        # ✅ Clean and trim transcript text
                         text_blocks = []
                         for s in segs:
                             txt = re.sub(r'\s+', ' ', s["text"]).strip()
                             if txt:
                                 text_blocks.append(txt)
                         full_text = " ".join(text_blocks)
-                        short_text = full_text[:5000]  # safety limit
 
-                        # 🧠 AI Summary (very short)
+                        # Limit input to first 4000 chars (for clarity)
+                        short_text = full_text[:4000]
+
+                        # 🧠 Smart Summarizer (force concise 5-line result)
                         st.subheader("🧠 AI Summary of the Video")
                         summary_prompt = (
-                            "Summarize this YouTube video transcript concisely in under 5 bullet points. "
-                            "Focus only on the key ideas, main topics, and conclusion. "
-                            f"Transcript:\n{short_text}"
+                            "Summarize the following YouTube video transcript **in exactly 5 concise bullet points**. "
+                            "Each point should be one short sentence, avoiding repetition or filler words. "
+                            "Focus only on key topics, insights, and conclusion.\n\n"
+                            f"Transcript snippet:\n{short_text}"
                         )
 
                         short_summary = "(Summary unavailable)"
@@ -254,22 +252,27 @@ if module == "🎥 Video Summary":
                                     model="gpt-4o-mini",
                                     messages=[{"role": "user", "content": summary_prompt}]
                                 )
-                                short_summary = resp.choices[0].message.content.strip()
+                                result = resp.choices[0].message.content.strip()
+
+                                # Ensure the summary doesn’t exceed 5 lines
+                                lines = [l.strip("•- \n") for l in result.split("\n") if l.strip()]
+                                lines = lines[:5]
+                                short_summary = "• " + "\n• ".join(lines)
                             else:
-                                # fallback summary
-                                sentences = re.split(r'[.!?]', full_text)
+                                # fallback heuristic
+                                sentences = re.split(r'[.!?]', short_text)
                                 short_summary = "• " + "\n• ".join(sentences[:5])
                         except Exception as e:
                             short_summary = f"⚠️ Summarization error: {e}"
 
                         st.write(short_summary)
 
-                        # 🕒 Key Moments (approx. 4–6 highlights)
+                        # 🕒 Key Moments (4 short highlights)
                         st.markdown("---")
                         st.subheader("🕒 Key Moments")
 
                         n = len(segs)
-                        jump_points = [0, int(n/4), int(n/2), int(3*n/4), n-1]
+                        jump_points = [0, int(n / 4), int(n / 2), int(3 * n / 4), n - 1]
                         moment_labels = ["Introduction", "Main Topic", "Example / Case Study", "Conclusion"]
 
                         for i, idx in enumerate(jump_points[:len(moment_labels)]):
@@ -278,11 +281,13 @@ if module == "🎥 Video Summary":
                             h, m, s_ = map(int, start_time.split(":"))
                             total = h * 3600 + m * 60 + s_
                             yt_link = f"https://www.youtube.com/watch?v={video_id}&t={total}s"
-                            label = moment_labels[i] if i < len(moment_labels) else f"Part {i+1}"
+                            label = moment_labels[i] if i < len(moment_labels) else f"Part {i + 1}"
                             st.markdown(f"- {m:02d}:{s_:02d} → [{label}]({yt_link})")
 
     st.markdown("---")
-    st.caption("Built by Selva Kumar | Smart Video Summary with Clickable Highlights 🎬")
+    st.caption("Built by Selva Kumar | Concise AI Summary + Clickable Highlights 🎬")
+
+
 # ------------------------------------------------------------
 # 📋 PLACEHOLDER MODULES
 # ------------------------------------------------------------
