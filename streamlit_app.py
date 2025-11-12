@@ -191,6 +191,10 @@ module = st.sidebar.radio(
 # 🎥 VIDEO SUMMARY MODULE
 # ------------------------------------------------------------
 
+# ------------------------------------------------------------
+# 🎥 VIDEO SUMMARY MODULE
+# ------------------------------------------------------------
+
 if module == "🎥 Video Summary":
     st.title("🎥 YouTube Video Summarizer + Timestamp Highlights")
     st.markdown("Paste a YouTube URL to get AI summary and simplified key timestamps.")
@@ -202,31 +206,47 @@ if module == "🎥 Video Summary":
             st.warning("Please paste a valid YouTube link.")
         else:
             with st.spinner("Fetching and analyzing transcript..."):
-                segs, err = try_transcript_api(extract_video_id(url))
-                if not segs:
-                    segs, err = try_yt_dlp_subtitles(url, extract_video_id(url))[:2]
-                if err:
-                    st.error(f"❌ {err}")
-                elif not segs:
-                    st.warning("⚠️ No captions found.")
+                video_id = extract_video_id(url)
+                if not video_id:
+                    st.error("Invalid YouTube URL format.")
                 else:
-                    # ✅ Clean, merge, and summarize
-                    grouped = clean_and_group_segments(segs)
-                    full_text = " ".join([s["text"] for s in grouped])
+                    # --- Try API first
+                    segs, err = try_transcript_api(video_id)
 
-                    # 🧠 Summary first
-                    st.subheader("🧠 AI Summary of the Video")
-                    summary = summarize_text(full_text)
-                    st.write(summary)
+                    # --- If API fails, fallback to yt_dlp subtitles
+                    if not segs:
+                        vtt_path, err2, tmpdir = try_yt_dlp_subtitles(url, video_id)
+                        if vtt_path:
+                            try:
+                                segs = parse_vtt(vtt_path)
+                                err = err2
+                            finally:
+                                shutil.rmtree(tmpdir, ignore_errors=True)
+                        else:
+                            st.error(f"❌ Could not fetch subtitles: {err2}")
+                            segs = None
 
-                    # 🕒 Then short clickable timestamps
-                    st.markdown("---")
-                    st.subheader("🕒 Key Moments")
-                    vid = extract_video_id(url)
-                    short_timestamps = generate_timestamps_summary(grouped, vid)
-                    for t in short_timestamps:
-                        st.markdown(f"- {t}")
+                    if err:
+                        st.warning(f"⚠️ {err}")
 
+                    if not segs or not isinstance(segs, list) or not all(isinstance(s, dict) and 'text' in s for s in segs):
+                        st.error("Transcript could not be parsed correctly.")
+                    else:
+                        # ✅ Clean, merge, and summarize
+                        grouped = clean_and_group_segments(segs)
+                        full_text = " ".join([s["text"] for s in grouped])
+
+                        # 🧠 Summary first
+                        st.subheader("🧠 AI Summary of the Video")
+                        summary = summarize_text(full_text)
+                        st.write(summary)
+
+                        # 🕒 Then short clickable timestamps
+                        st.markdown("---")
+                        st.subheader("🕒 Key Moments")
+                        short_timestamps = generate_timestamps_summary(grouped, video_id)
+                        for t in short_timestamps:
+                            st.markdown(f"- {t}")
 # ------------------------------------------------------------
 # 📋 PLACEHOLDER MODULES
 # ------------------------------------------------------------
