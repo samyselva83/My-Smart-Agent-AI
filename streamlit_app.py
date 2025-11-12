@@ -1,6 +1,6 @@
 # ============================================================
-# 🌐 My Smart Agent - Multi Module App
-# 🎥 Video Summary Module + AI Summarizer
+# 🎥 YouTube Video Summarizer + Timestamp Highlighter
+# Integrated into My Smart Agent App
 # Author: Selva Kumar
 # ============================================================
 
@@ -9,14 +9,14 @@ import re, os, tempfile, glob, shutil
 from collections import OrderedDict
 import yt_dlp
 
-# Optional Summarizer
+# Optional AI summarizer
 try:
     from openai import OpenAI
     client = OpenAI()
 except Exception:
     client = None
 
-# Transcript API
+# Optional transcript API
 try:
     from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 except Exception:
@@ -30,19 +30,17 @@ except Exception:
 # ============================================================
 
 def clean_youtube_url(url: str) -> str:
-    """Clean up YouTube URL"""
     base = url.split("&")[0]
     base = base.split("?si=")[0]
     return base.strip()
 
 def extract_video_id(url: str):
-    """Extract YouTube video ID"""
     m = re.search(r"(?:v=|be/)([0-9A-Za-z_-]{11})", url)
     return m.group(1) if m else None
 
 
 # ============================================================
-# 🎬 FETCH TRANSCRIPT
+# 🎬 TRANSCRIPT FETCH
 # ============================================================
 
 def try_transcript_api(video_id):
@@ -81,7 +79,7 @@ def try_yt_dlp_subtitles(video_url, video_id):
     return vtt_files[0], None, tmp
 
 def parse_vtt(vtt_path):
-    """Parse VTT file to timestamped text"""
+    """Parse VTT subtitle into clean segments"""
     text = open(vtt_path, "r", encoding="utf-8", errors="ignore").read()
     text = re.sub(r"WEBVTT.*\n", "", text, flags=re.IGNORECASE)
     blocks = re.split(r"\n\s*\n", text.strip())
@@ -91,14 +89,17 @@ def parse_vtt(vtt_path):
         if not m:
             continue
         start = m.group(1)
-        txt = re.sub(r".*-->\s.*\n", "", block).strip().replace("\n", " ")
+        txt = re.sub(r".*-->\s.*\n", "", block)
+        txt = re.sub(r"<[^>]+>", "", txt)  # remove <c> tags
+        txt = re.sub(r"align:start.*", "", txt)
+        txt = txt.replace("\n", " ").strip()
         if txt:
             segs.append({"start": start, "text": txt})
     return segs
 
 
 # ============================================================
-# 🔎 MAIN FETCH HANDLER
+# 🔎 CAPTION FETCH MASTER
 # ============================================================
 
 def fetch_captions(video_url):
@@ -125,21 +126,20 @@ def fetch_captions(video_url):
 
 
 # ============================================================
-# 🧠 SUMMARIZATION ENGINE
+# 🧠 AI SUMMARIZER
 # ============================================================
 
 def summarize_text(text):
-    """Summarize the transcript"""
+    """Summarize transcript cleanly"""
     if not text.strip():
-        return "No transcript content available to summarize."
+        return "No transcript content found."
 
     if not client:
-        # Basic fallback summary (local)
-        sentences = text.split(".")
-        return ". ".join(sentences[:8]) + "..."
-
+        # fallback simple summary
+        parts = text.split(". ")
+        return ". ".join(parts[:8]) + "..."
     try:
-        prompt = f"Summarize this YouTube video transcript clearly and concisely (under 200 words):\n{text}"
+        prompt = f"Summarize this YouTube video transcript clearly and concisely (within 200 words):\n{text}"
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}]
@@ -150,14 +150,14 @@ def summarize_text(text):
 
 
 # ============================================================
-# 🖥️ STREAMLIT MULTI-MODULE APP
+# 🖥️ STREAMLIT APP (VIDEO SUMMARY MODULE)
 # ============================================================
 
-st.set_page_config(page_title="🎯 My Smart Agent", layout="wide", page_icon="🤖")
+st.set_page_config(page_title="🎥 My Smart Agent", page_icon="🤖", layout="wide")
 
 st.sidebar.title("🤖 My Smart Agent Menu")
 module = st.sidebar.radio(
-    "Choose a module",
+    "Select a module",
     [
         "🗓️ Daily Planner (AI)",
         "💵 Finance Tracker",
@@ -168,75 +168,77 @@ module = st.sidebar.radio(
     ]
 )
 
-language = st.sidebar.selectbox("Language", ["English", "தமிழ்", "हिंदी"])
-
-st.sidebar.markdown("---")
-
 # ============================================================
-# MODULE LOGIC
+# 🎥 VIDEO SUMMARY MODULE
 # ============================================================
 
 if module == "🎥 Video Summary":
     st.title("🎥 YouTube Video Summarizer + Timestamp Highlighter")
-    st.markdown("Paste a YouTube video URL to extract captions, timestamps, and an AI-generated summary.")
+    st.markdown("Paste a YouTube link to get AI summary and clickable timestamps.")
 
     url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=6Dh-RL__uN4")
 
     if st.button("🚀 Generate Summary"):
         if not url.strip():
-            st.warning("Please enter a valid YouTube video link.")
+            st.warning("Please enter a valid YouTube link.")
         else:
-            with st.spinner("Fetching and processing transcript..."):
+            with st.spinner("Fetching transcript and generating summary..."):
                 segs, err = fetch_captions(url)
                 if err:
                     st.error(f"❌ {err}")
                 elif not segs:
-                    st.warning("⚠️ No captions found or subtitles not public.")
+                    st.warning("⚠️ No captions found.")
                 else:
+                    # Clean duplicates
                     seen = OrderedDict()
                     for s in segs:
                         if s["text"] not in seen:
                             seen[s["text"]] = s["start"]
                     segs = [{"start": v, "text": k} for k, v in seen.items()]
 
-                    st.success(f"✅ Extracted {len(segs)} caption lines.")
+                    # Build full transcript
+                    full_text = " ".join([s["text"] for s in segs])
 
-                    st.markdown("### 🕒 Clickable Captions")
+                    # 🧠 Show AI summary first
+                    st.subheader("🧠 AI Summary of the Video")
+                    summary = summarize_text(full_text)
+                    st.write(summary)
+
+                    # 🕒 Then show timestamps
+                    st.markdown("---")
+                    st.subheader("🕒 Clickable Timestamp Captions")
+
                     vid = extract_video_id(url)
                     for s in segs:
                         t = s["start"].split(".")[0]
                         h, m, s_ = map(int, t.split(":"))
                         total = h * 3600 + m * 60 + s_
                         yt_link = f"https://www.youtube.com/watch?v={vid}&t={total}s"
-                        st.markdown(f"- ⏱️ [{s['start']}] → [{s['text']}]({yt_link})")
+                        st.markdown(f"- [{s['start']}] → [{s['text']}]({yt_link})")
 
-                    # Summarization Section
-                    all_text = " ".join([s["text"] for s in segs])
-                    st.markdown("---")
-                    st.subheader("🧠 AI Summary of the Video")
-                    summary = summarize_text(all_text)
-                    st.write(summary)
+# ============================================================
+# 🧩 OTHER MODULE PLACEHOLDERS
+# ============================================================
 
-# Other modules (placeholder)
 elif module == "🗓️ Daily Planner (AI)":
     st.header("🗓️ Daily Planner (AI)")
-    st.info("Coming soon: Plan your day intelligently with AI assistance.")
+    st.info("Coming soon — AI auto-plans your day based on your goals.")
 
 elif module == "💵 Finance Tracker":
     st.header("💵 Finance Tracker")
-    st.info("Monitor your spending and savings goals with smart insights.")
+    st.info("Track your expenses and generate smart finance insights.")
 
 elif module == "💪 Health & Habit":
-    st.header("💪 Health & Habit Tracker")
-    st.info("Track your daily health activities, habits, and progress.")
+    st.header("💪 Health & Habit")
+    st.info("Monitor your wellness activities and habits daily.")
 
 elif module == "🧠 LearnMate":
     st.header("🧠 LearnMate")
-    st.info("Learn efficiently with smart flashcards, summaries, and quizzes.")
+    st.info("Learn smarter with AI notes, flashcards, and explanations.")
 
 elif module == "🧾 Memory":
-    st.header("🧾 Memory")
-    st.info("Your personal memory space — save notes, summaries, and reminders.")
+    st.header("🧾 Memory Vault")
+    st.info("Save key information, notes, and personal AI memories.")
 
 st.markdown("---")
-st.caption("Developed by Selva Kumar • Works with caption-enabled YouTube videos only.")
+st.caption("Developed by Selva Kumar | Supports only caption-enabled YouTube videos.")
