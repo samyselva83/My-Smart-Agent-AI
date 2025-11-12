@@ -1,16 +1,11 @@
-# ============================================================
-# 🌐 Smart Agent AI Dashboard
-# Modules: Daily Planner | Finance Tracker | Health & Habit |
-#          LearnMate | Memory | Video Summary (AI Summarizer)
-# Author: Selva Kumar
-# ============================================================
-
 import streamlit as st
-import re, os, tempfile, shutil, glob
+import re, os, tempfile, glob, shutil
 import yt_dlp
 from collections import OrderedDict
 
-# Optional OpenAI client
+# ------------------------------------------------------------
+# Optional Summarization (OpenAI)
+# ------------------------------------------------------------
 try:
     from openai import OpenAI
     client = OpenAI()
@@ -26,35 +21,29 @@ except Exception:
 
 
 # ------------------------------------------------------------
-# UTILITIES
+# Utility Functions
 # ------------------------------------------------------------
-
-def clean_youtube_url(url: str) -> str:
-    base = url.split("&")[0]
-    base = base.split("?si=")[0]
-    return base.strip()
-
 def extract_video_id(url: str):
-    m = re.search(r"(?:v=|be/)([0-9A-Za-z_-]{11})", url)
-    return m.group(1) if m else None
+    """Extract YouTube video ID from URL."""
+    match = re.search(r"(?:v=|be/)([0-9A-Za-z_-]{11})", url)
+    return match.group(1) if match else None
 
-
-# ------------------------------------------------------------
-# TRANSCRIPT FETCH
-# ------------------------------------------------------------
 
 def try_transcript_api(video_id):
+    """Try fetching transcript using YouTubeTranscriptApi."""
     if YouTubeTranscriptApi is None:
         return None, "Transcript API not available"
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
         return transcript, None
     except (TranscriptsDisabled, NoTranscriptFound):
-        return None, "No transcript found"
+        return None, "Transcript not available"
     except Exception as e:
-        return None, f"Transcript API error: {e}"
+        return None, f"Transcript error: {e}"
+
 
 def try_yt_dlp_subtitles(video_url, video_id):
+    """Fallback: download subtitles using yt_dlp."""
     tmp = tempfile.mkdtemp()
     opts = {
         "skip_download": True,
@@ -76,7 +65,9 @@ def try_yt_dlp_subtitles(video_url, video_id):
         return None, "No subtitle file found", tmp
     return vtt_files[0], None, tmp
 
+
 def parse_vtt(vtt_path):
+    """Parse .vtt caption file."""
     text = open(vtt_path, "r", encoding="utf-8", errors="ignore").read()
     text = re.sub(r"WEBVTT.*\n", "", text, flags=re.IGNORECASE)
     blocks = re.split(r"\n\s*\n", text.strip())
@@ -93,152 +84,151 @@ def parse_vtt(vtt_path):
 
 
 # ------------------------------------------------------------
-# SUMMARIZATION
+# Summarization Helper
 # ------------------------------------------------------------
-
-def summarize_clean_text(full_text: str) -> str:
-    """Generate a short, meaningful summary from clean transcript."""
-    # Deep clean repetitive phrases and symbols
-    cleaned = re.sub(r'<[^>]+>|align:start|position:\d+%', '', full_text)
-    cleaned = re.sub(r'\b(\w+)( \1\b)+', r'\1', cleaned)
-    cleaned = re.sub(r'[^A-Za-z0-9.,?! ]+', ' ', cleaned)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-
-    snippet = cleaned[:4000]
+def summarize_text(clean_text):
+    """Summarize transcript using OpenAI GPT or fallback."""
+    if not clean_text.strip():
+        return "No transcript available to summarize."
 
     if client:
         try:
             prompt = (
-                "Summarize the following YouTube video transcript into 4–6 sentences "
-                "(under 120 words). Use a clear and natural style like:\n"
-                "'This video introduces the fundamentals of Generative AI, "
-                "covering machine learning, deep learning, and language models "
-                "with simple examples.'\n\nTranscript:\n" + snippet
+                "You are an expert video summarizer. Read the transcript and write a concise, "
+                "human-like paragraph (80–120 words) summarizing the main ideas, avoiding repetition "
+                "and caption noise. Example style:\n"
+                "'This video introduces the fundamentals of Generative AI, explaining the differences "
+                "between traditional and generative models, and covering tools like LangChain and LLMs.'\n\n"
+                f"Transcript:\n{clean_text[:6000]}"
             )
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
-                temperature=0.5,
-                messages=[
-                    {"role": "system", "content": "You summarize YouTube educational videos clearly."},
-                    {"role": "user", "content": prompt},
-                ],
+                temperature=0.4,
+                messages=[{"role": "user", "content": prompt}],
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
             return f"⚠️ Summarization error: {e}"
     else:
-        sentences = re.split(r'[.!?]', snippet)
-        return ". ".join(sentences[:3]) + "..."
+        # Simple fallback summary
+        sentences = re.split(r'[.!?]', clean_text)
+        return ". ".join(sentences[:5]) + "..."
 
 
 # ------------------------------------------------------------
-# MAIN APP
+# Streamlit Layout
 # ------------------------------------------------------------
+st.set_page_config(page_title="🧠 My Smart Agent", page_icon="🤖", layout="wide")
 
-st.set_page_config(page_title="My Smart Agent AI", page_icon="🤖", layout="wide")
 st.sidebar.title("🧭 Navigation")
-
-menu = [
-    "🗓️ Daily Planner (AI)",
-    "💵 Finance Tracker",
-    "💪 Health & Habit",
-    "🧠 LearnMate",
-    "🧾 Memory",
-    "🎥 Video Summary"
-]
-choice = st.sidebar.radio("Choose a module:", menu)
+module = st.sidebar.radio(
+    "Select a Module:",
+    [
+        "🗓️ Daily Planner (AI)",
+        "💵 Finance Tracker",
+        "💪 Health & Habit",
+        "🧠 LearnMate",
+        "🧾 Memory",
+        "🎥 Video Summary",
+    ],
+)
 
 # ------------------------------------------------------------
-# MODULE: DAILY PLANNER
+# Individual Module Sections
 # ------------------------------------------------------------
-if choice == "🗓️ Daily Planner (AI)":
+
+if module == "🗓️ Daily Planner (AI)":
     st.title("🗓️ AI Daily Planner")
-    st.info("Smart planner that auto-creates your day’s schedule with AI. Coming soon!")
+    st.write("Auto-plan your day based on goals, time, and priorities.")
+    st.info("✨ Coming soon: smart scheduling and multilingual reminders.")
 
-# ------------------------------------------------------------
-# MODULE: FINANCE TRACKER
-# ------------------------------------------------------------
-elif choice == "💵 Finance Tracker":
+
+elif module == "💵 Finance Tracker":
     st.title("💵 Finance Tracker")
-    st.info("Track expenses, savings, and goals. Smart budgeting in development.")
+    st.write("Monitor and analyze daily expenses intelligently.")
+    st.info("📊 Coming soon: AI expense categorization and spending insights.")
+
+
+elif module == "💪 Health & Habit":
+    st.title("💪 Health & Habit Coach")
+    st.write("Track your physical health and daily habits.")
+    st.info("🩺 Coming soon: wellness scoring and routine improvement AI.")
+
+
+elif module == "🧠 LearnMate":
+    st.title("🧠 LearnMate")
+    st.write("Interactive learning assistant for AI, ML, and coding topics.")
+    st.info("🎓 Coming soon: adaptive quizzes and visual learning modules.")
+
+
+elif module == "🧾 Memory":
+    st.title("🧾 Memory Vault")
+    st.write("Store and retrieve your notes, thoughts, and project logs.")
+    st.info("📘 Coming soon: semantic memory search and AI recall tools.")
+
 
 # ------------------------------------------------------------
-# MODULE: HEALTH & HABIT
+# 🎥 Video Summarizer Module
 # ------------------------------------------------------------
-elif choice == "💪 Health & Habit":
-    st.title("💪 Health & Habit Tracker")
-    st.info("Monitor daily habits, workouts, and health scores. Coming soon.")
-
-# ------------------------------------------------------------
-# MODULE: LEARNMATE
-# ------------------------------------------------------------
-elif choice == "🧠 LearnMate":
-    st.title("🧠 LearnMate – AI Learning Assistant")
-    st.info("Personal AI tutor that explains topics and quizzes you interactively. Coming soon.")
-
-# ------------------------------------------------------------
-# MODULE: MEMORY
-# ------------------------------------------------------------
-elif choice == "🧾 Memory":
-    st.title("🧾 Memory & Notes")
-    st.info("Persistent memory for projects and ideas. Under active development.")
-
-# ------------------------------------------------------------
-# MODULE: VIDEO SUMMARY
-# ------------------------------------------------------------
-elif choice == "🎥 Video Summary":
+elif module == "🎥 Video Summary":
     st.title("🎥 AI Video Summarizer + Key Highlights")
-    st.markdown("Paste a YouTube link — get a clean **AI-written summary** and clickable timestamps.")
+    st.markdown("Paste a YouTube video URL below to get a clean **AI summary** and **key timestamps**.")
 
     url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=gqQ8fMbXKHE")
 
-    if st.button("🚀 Generate Summary"):
+    if st.button("🚀 Summarize Video"):
         if not url.strip():
-            st.warning("Please enter a YouTube link.")
+            st.warning("Please enter a valid YouTube URL.")
         else:
-            with st.spinner("Fetching transcript and generating summary..."):
-                vid = extract_video_id(url)
-                segs, err = try_transcript_api(vid)
-                if not segs:
-                    vtt_path, err2, tmpdir = try_yt_dlp_subtitles(url, vid)
-                    if vtt_path:
-                        try:
-                            segs = parse_vtt(vtt_path)
-                        finally:
-                            shutil.rmtree(tmpdir, ignore_errors=True)
-                    else:
-                        st.error(f"❌ Could not fetch captions: {err2}")
-                        segs = None
-
-                if not segs:
-                    st.error("⚠️ No captions found or subtitles disabled.")
+            with st.spinner("⏳ Fetching transcript and generating summary..."):
+                video_id = extract_video_id(url)
+                if not video_id:
+                    st.error("Invalid YouTube link.")
                 else:
-                    # Clean transcript text
-                    full_text = " ".join([s["text"] for s in segs])
-                    summary = summarize_clean_text(full_text)
+                    segs, err = try_transcript_api(video_id)
+                    if not segs:
+                        vtt_path, err2, tmpdir = try_yt_dlp_subtitles(url, video_id)
+                        if vtt_path:
+                            try:
+                                segs = parse_vtt(vtt_path)
+                            finally:
+                                shutil.rmtree(tmpdir, ignore_errors=True)
+                        else:
+                            st.error(f"❌ Could not retrieve subtitles: {err2}")
+                            segs = None
 
-                    st.subheader("🧠 AI-Generated Video Summary")
-                    st.caption("Quality and accuracy may vary.")
-                    st.write(summary)
+                    if not segs:
+                        st.error("⚠️ No transcript found or captions unavailable.")
+                    else:
+                        # Clean and combine text
+                        clean_lines = []
+                        for s in segs:
+                            t = re.sub(r'<[^>]+>', '', s.get("text", ""))
+                            t = re.sub(r'[^A-Za-z0-9.,?! ]+', ' ', t)
+                            t = re.sub(r'\s+', ' ', t).strip()
+                            if t:
+                                clean_lines.append(t)
+                        transcript = " ".join(clean_lines)
+                        transcript = re.sub(r'\b(\w+)( \1\b)+', r'\1', transcript)
 
-                    # Display key timestamps (5 representative ones)
-                    st.markdown("---")
-                    st.subheader("🕒 Key Moments")
-                    n = len(segs)
-                    step = max(1, n // 5)
-                    points = segs[::step][:5]
-                    labels = ["Introduction", "Concept", "Example", "Insight", "Conclusion"]
+                        st.subheader("🧠 AI-Generated Video Summary")
+                        summary = summarize_text(transcript)
+                        st.write(summary)
 
-                    for i, s in enumerate(points):
-                        start = s["start"].split(".")[0]
-                        try:
-                            h, m, s_ = map(int, start.split(":"))
-                        except:
-                            h, m, s_ = 0, 0, 0
-                        total = h * 3600 + m * 60 + s_
-                        yt_link = f"https://www.youtube.com/watch?v={vid}&t={total}s"
-                        label = labels[i]
-                        st.markdown(f"- {m:02d}:{s_:02d} → [{label}]({yt_link})")
+                        # Key Timestamps
+                        st.markdown("---")
+                        st.subheader("🕒 Key Moments")
+                        n = len(segs)
+                        step = max(1, n // 5)
+                        labels = ["Introduction", "Topic Overview", "Key Example", "Main Insight", "Conclusion"]
+
+                        for i, s in enumerate(segs[::step][:5]):
+                            start = s["start"].split(".")[0]
+                            h, m, sec = map(int, start.split(":"))
+                            total = h * 3600 + m * 60 + sec
+                            yt_link = f"https://www.youtube.com/watch?v={video_id}&t={total}s"
+                            label = labels[i]
+                            st.markdown(f"- {m:02d}:{sec:02d} → [{label}]({yt_link})")
 
     st.markdown("---")
-    st.caption("🎯 Built by Selva Kumar | AI-powered YouTube Video Summarizer")
+    st.caption("🤖 Built by Selva Kumar | Works best with caption-enabled videos.")
