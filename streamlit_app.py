@@ -187,25 +187,27 @@ module = st.sidebar.radio(
     ]
 )
 # ------------------------------------------------------------
-# 🎥 VIDEO SUMMARIZER (Deduplicated + Clean Highlights)
+# 🎥 VIDEO SUMMARIZER (Clean Paragraph Summary + Key Moments)
 # ------------------------------------------------------------
 
 if module == "🎥 Video Summary":
-    st.title("🎥 YouTube Video Summarizer + Key Highlights")
-    st.markdown("Paste a YouTube URL to get a **clean AI summary** and **key clickable timestamps**.")
+    st.title("🎥 AI Video Summarizer + Key Highlights")
+    st.markdown("Paste a YouTube URL to generate a **clean, short AI-generated summary** and **key video timestamps.**")
 
-    url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=d4yCWBGFCEs")
+    url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=gqQ8fMbXKHE")
 
-    if st.button("🚀 Generate Summary"):
+    if st.button("🚀 Generate AI Summary"):
         if not url.strip():
             st.warning("Please paste a valid YouTube link.")
         else:
-            with st.spinner("Fetching transcript and generating summary..."):
+            with st.spinner("Fetching transcript and creating AI summary..."):
                 video_id = extract_video_id(url)
                 if not video_id:
                     st.error("Invalid YouTube URL format.")
                 else:
                     segs, err = try_transcript_api(video_id)
+
+                    # Fallback to yt_dlp subtitles if needed
                     if not segs:
                         vtt_path, err2, tmpdir = try_yt_dlp_subtitles(url, video_id)
                         if vtt_path:
@@ -217,71 +219,63 @@ if module == "🎥 Video Summary":
                         else:
                             st.error(f"❌ Could not fetch subtitles: {err2}")
                             segs = None
+
                     if err:
                         st.warning(f"⚠️ {err}")
 
                     if not segs or not isinstance(segs, list):
                         st.error("Transcript could not be parsed correctly.")
                     else:
-                        # ✅ 1️⃣ Clean + normalize transcript
-                        raw_lines = [s["text"] for s in segs if s.get("text")]
+                        # ✅ Clean transcript text
                         cleaned_lines = []
-                        for line in raw_lines:
-                            line = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3}", "", line)
-                            line = re.sub(r"align:start|position:\d+%|c>|<[^>]+>", "", line)
-                            line = re.sub(r"\s+", " ", line).strip().lower()
-                            if len(line) > 8:
-                                cleaned_lines.append(line)
+                        for s in segs:
+                            txt = s.get("text", "")
+                            txt = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3}", "", txt)
+                            txt = re.sub(r"align:start|position:\d+%|<[^>]+>", "", txt)
+                            txt = re.sub(r"\s+", " ", txt).strip()
+                            if txt and txt not in cleaned_lines:
+                                cleaned_lines.append(txt)
 
-                        # ✅ 2️⃣ Deduplicate similar lines
-                        unique_lines = []
-                        for line in cleaned_lines:
-                            if not unique_lines or line not in unique_lines[-1]:
-                                if all(line not in prev for prev in unique_lines[-3:]):  # last 3 lines check
-                                    unique_lines.append(line)
+                        clean_text = " ".join(cleaned_lines)
+                        clean_text = re.sub(r"\s+", " ", clean_text)
+                        short_text = clean_text[:4000]  # Trim long transcripts
 
-                        # ✅ 3️⃣ Sentence-level compression
-                        compressed_text = " ".join(unique_lines)
-                        compressed_text = re.sub(r"(?:\b(\w+)\s+\1\b)", r"\1", compressed_text)  # remove duplicate words
-                        short_text = compressed_text[:2000]  # keep short for clarity
+                        # 🧠 AI Natural Paragraph Summary
+                        st.subheader("🧠 AI-generated video summary")
+                        st.caption("Quality and accuracy may vary.")
 
-                        # 🧠 4️⃣ Concise AI Summary (forced bullet output)
-                        st.subheader("🧠 Key Highlights Summary")
                         summary_prompt = (
-                            "You are a professional video summarizer. "
-                            "Summarize the following transcript into exactly **5 short bullet points**. "
-                            "Do NOT include timestamps, repeated words, or unrelated sentences. "
-                            "Focus on main ideas, key examples, and conclusions.\n\n"
+                            "You are a skilled educational content summarizer. "
+                            "Write a short, natural paragraph summarizing the main topic and flow of this YouTube video. "
+                            "Do not include timestamps, speaker names, or bullet points. "
+                            "Use 3–5 concise sentences, written like a professional course description.\n\n"
                             f"Transcript:\n{short_text}"
                         )
 
-                        short_summary = "(Summary unavailable)"
                         try:
                             if client:
                                 resp = client.chat.completions.create(
                                     model="gpt-4o-mini",
-                                    temperature=0.3,
-                                    messages=[{"role": "user", "content": summary_prompt}]
+                                    messages=[{"role": "user", "content": summary_prompt}],
+                                    temperature=0.5,
                                 )
-                                result = resp.choices[0].message.content.strip()
-                                lines = [l.strip("•- \n") for l in result.split("\n") if l.strip()]
-                                lines = lines[:5]
-                                short_summary = "• " + "\n• ".join(lines)
+                                summary_text = resp.choices[0].message.content.strip()
                             else:
+                                # Fallback if no API
                                 sentences = re.split(r'[.!?]', short_text)
-                                short_summary = "• " + "\n• ".join(sentences[:5])
+                                summary_text = ". ".join(sentences[:3]) + "..."
                         except Exception as e:
-                            short_summary = f"⚠️ Summarization error: {e}"
+                            summary_text = f"⚠️ Summarization error: {e}"
 
-                        st.write(short_summary)
+                        st.markdown(summary_text)
 
-                        # 🕒 5️⃣ Key Moments
+                        # 🕒 Key Timestamps Section
                         st.markdown("---")
                         st.subheader("🕒 Key Moments")
 
                         n = len(segs)
-                        jump_points = [0, int(n/4), int(n/2), int(3*n/4), n-1]
-                        labels = ["Introduction", "Core Idea", "Example / Case", "Conclusion"]
+                        jump_points = [0, int(n / 4), int(n / 2), int(3 * n / 4), n - 1]
+                        labels = ["Introduction", "Main Idea", "Example / Case Study", "Conclusion"]
 
                         for i, idx in enumerate(jump_points[:len(labels)]):
                             s = segs[idx]
@@ -292,10 +286,11 @@ if module == "🎥 Video Summary":
                                 h, m, s_ = 0, 0, 0
                             total = h * 3600 + m * 60 + s_
                             yt_link = f"https://www.youtube.com/watch?v={video_id}&t={total}s"
-                            st.markdown(f"- {m:02d}:{s_:02d} → [{labels[i]}]({yt_link})")
+                            label = labels[i]
+                            st.markdown(f"- {m:02d}:{s_:02d} → [{label}]({yt_link})")
 
     st.markdown("---")
-    st.caption("Built by Selva Kumar | Smart AI Video Highlights 🎬")
+    st.caption("Built by Selva Kumar | AI Video Summarizer (Streamlit + Groq/OpenAI)")
 
 # ------------------------------------------------------------
 # 📋 PLACEHOLDER MODULES
