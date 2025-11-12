@@ -1,15 +1,15 @@
 # ============================================================
-# 🎥 YouTube Video Summarizer + Timestamp Highlighter
-# Integrated into My Smart Agent App
-# Author: Selva Kumar
+# 🎥 YouTube Video Summarizer + Smart Timestamp Highlighter
+# Author: Selva Kumar (My Smart Agent)
 # ============================================================
 
 import streamlit as st
 import re, os, tempfile, glob, shutil
 from collections import OrderedDict
 import yt_dlp
+from difflib import SequenceMatcher
 
-# Optional AI summarizer
+# Optional AI summarizer (OpenAI)
 try:
     from openai import OpenAI
     client = OpenAI()
@@ -79,19 +79,17 @@ def try_yt_dlp_subtitles(video_url, video_id):
     return vtt_files[0], None, tmp
 
 def parse_vtt(vtt_path):
-    """Parse VTT subtitle into clean segments"""
+    """Parse and clean VTT subtitles"""
     text = open(vtt_path, "r", encoding="utf-8", errors="ignore").read()
     text = re.sub(r"WEBVTT.*\n", "", text, flags=re.IGNORECASE)
     blocks = re.split(r"\n\s*\n", text.strip())
     segs = []
     for block in blocks:
-        m = re.search(r"(\d{2}:\d{2}:\d{2}\.\d{3})\s-->\s(\d{2}:\d{2}:\d{2}\.\d{3})", block)
-        if not m:
-            continue
+        m = re.search(r"(\d{2}:\d{2}:\d{2}\.\d{3})\s-->\s", block)
+        if not m: continue
         start = m.group(1)
         txt = re.sub(r".*-->\s.*\n", "", block)
-        txt = re.sub(r"<[^>]+>", "", txt)  # remove <c> tags
-        txt = re.sub(r"align:start.*", "", txt)
+        txt = re.sub(r"<[^>]+>", "", txt)
         txt = txt.replace("\n", " ").strip()
         if txt:
             segs.append({"start": start, "text": txt})
@@ -99,47 +97,54 @@ def parse_vtt(vtt_path):
 
 
 # ============================================================
-# 🔎 CAPTION FETCH MASTER
+# 🧠 TEXT CLEANING & CLUSTERING
 # ============================================================
 
-def fetch_captions(video_url):
-    url = clean_youtube_url(video_url)
-    vid = extract_video_id(url)
-    if not vid:
-        return None, "Invalid YouTube URL"
+def is_similar(a, b, threshold=0.85):
+    return SequenceMatcher(None, a, b).ratio() > threshold
 
-    segs, err = try_transcript_api(vid)
-    if segs:
-        return segs, None
-
-    vtt_path, err2, tmpdir = try_yt_dlp_subtitles(url, vid)
-    if vtt_path:
-        try:
-            parsed = parse_vtt(vtt_path)
-            if parsed:
-                return parsed, None
-            return None, "Parsed 0 lines"
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-    else:
-        return None, f"No captions: {err2}"
+def clean_and_group_segments(segs):
+    """Merge repeated or overlapping captions & group by time"""
+    cleaned = []
+    prev = ""
+    for s in segs:
+        txt = re.sub(r'\s+', ' ', s["text"]).strip()
+        if not txt:
+            continue
+        if not is_similar(prev, txt):
+            cleaned.append(s)
+        prev = txt
+    # Now reduce to 5–6 segments for timestamp summary
+    n = len(cleaned)
+    group_size = max(1, n // 5)
+    grouped = []
+    for i in range(0, n, group_size):
+        group = cleaned[i:i+group_size]
+        if group:
+            start = group[0]["start"]
+            text = " ".join(g["text"] for g in group)
+            grouped.append({"start": start, "text": text})
+    return grouped
 
 
 # ============================================================
-# 🧠 AI SUMMARIZER
+# 🧠 SUMMARIZER
 # ============================================================
 
 def summarize_text(text):
-    """Summarize transcript cleanly"""
+    """Summarize transcript into short readable summary"""
     if not text.strip():
         return "No transcript content found."
 
     if not client:
-        # fallback simple summary
-        parts = text.split(". ")
-        return ". ".join(parts[:8]) + "..."
+        sentences = text.split(". ")
+        return ". ".join(sentences[:5]) + "..."
     try:
-        prompt = f"Summarize this YouTube video transcript clearly and concisely (within 200 words):\n{text}"
+        prompt = (
+            "Summarize the following YouTube transcript in **less than 120 words**, "
+            "keeping only key ideas and avoiding repetition:\n\n"
+            f"{text}"
+        )
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}]
@@ -149,13 +154,27 @@ def summarize_text(text):
         return f"(Summarization error: {e})"
 
 
+def generate_timestamps_summary(grouped, video_id):
+    """Generate simplified timestamp-style summary"""
+    results = []
+    labels = ["Introduction", "Topic Overview", "Main Concept", "Example/Case Study", "Conclusion"]
+    for i, g in enumerate(grouped[:5]):
+        t = g["start"].split(".")[0]
+        h, m, s_ = map(int, t.split(":"))
+        total = h * 3600 + m * 60 + s_
+        yt_link = f"https://www.youtube.com/watch?v={video_id}&t={total}s"
+        label = labels[i] if i < len(labels) else f"Section {i+1}"
+        results.append(f"{m}:{s_:02d} → [{label}]({yt_link})")
+    return results
+
+
 # ============================================================
-# 🖥️ STREAMLIT APP (VIDEO SUMMARY MODULE)
+# 🎥 STREAMLIT APP
 # ============================================================
 
 st.set_page_config(page_title="🎥 My Smart Agent", page_icon="🤖", layout="wide")
 
-st.sidebar.title("🤖 My Smart Agent Menu")
+st.sidebar.title("🤖 My Smart Agent")
 module = st.sidebar.radio(
     "Select a module",
     [
@@ -168,77 +187,69 @@ module = st.sidebar.radio(
     ]
 )
 
-# ============================================================
+# ------------------------------------------------------------
 # 🎥 VIDEO SUMMARY MODULE
-# ============================================================
+# ------------------------------------------------------------
 
 if module == "🎥 Video Summary":
-    st.title("🎥 YouTube Video Summarizer + Timestamp Highlighter")
-    st.markdown("Paste a YouTube link to get AI summary and clickable timestamps.")
+    st.title("🎥 YouTube Video Summarizer + Timestamp Highlights")
+    st.markdown("Paste a YouTube URL to get AI summary and simplified key timestamps.")
 
     url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=6Dh-RL__uN4")
 
     if st.button("🚀 Generate Summary"):
         if not url.strip():
-            st.warning("Please enter a valid YouTube link.")
+            st.warning("Please paste a valid YouTube link.")
         else:
-            with st.spinner("Fetching transcript and generating summary..."):
-                segs, err = fetch_captions(url)
+            with st.spinner("Fetching and analyzing transcript..."):
+                segs, err = try_transcript_api(extract_video_id(url))
+                if not segs:
+                    segs, err = try_yt_dlp_subtitles(url, extract_video_id(url))[:2]
                 if err:
                     st.error(f"❌ {err}")
                 elif not segs:
                     st.warning("⚠️ No captions found.")
                 else:
-                    # Clean duplicates
-                    seen = OrderedDict()
-                    for s in segs:
-                        if s["text"] not in seen:
-                            seen[s["text"]] = s["start"]
-                    segs = [{"start": v, "text": k} for k, v in seen.items()]
+                    # ✅ Clean, merge, and summarize
+                    grouped = clean_and_group_segments(segs)
+                    full_text = " ".join([s["text"] for s in grouped])
 
-                    # Build full transcript
-                    full_text = " ".join([s["text"] for s in segs])
-
-                    # 🧠 Show AI summary first
+                    # 🧠 Summary first
                     st.subheader("🧠 AI Summary of the Video")
                     summary = summarize_text(full_text)
                     st.write(summary)
 
-                    # 🕒 Then show timestamps
+                    # 🕒 Then short clickable timestamps
                     st.markdown("---")
-                    st.subheader("🕒 Clickable Timestamp Captions")
-
+                    st.subheader("🕒 Key Moments")
                     vid = extract_video_id(url)
-                    for s in segs:
-                        t = s["start"].split(".")[0]
-                        h, m, s_ = map(int, t.split(":"))
-                        total = h * 3600 + m * 60 + s_
-                        yt_link = f"https://www.youtube.com/watch?v={vid}&t={total}s"
-                        st.markdown(f"- [{s['start']}] → [{s['text']}]({yt_link})")
+                    short_timestamps = generate_timestamps_summary(grouped, vid)
+                    for t in short_timestamps:
+                        st.markdown(f"- {t}")
 
-# ============================================================
-# 🧩 OTHER MODULE PLACEHOLDERS
-# ============================================================
+# ------------------------------------------------------------
+# 📋 PLACEHOLDER MODULES
+# ------------------------------------------------------------
 
 elif module == "🗓️ Daily Planner (AI)":
     st.header("🗓️ Daily Planner (AI)")
-    st.info("Coming soon — AI auto-plans your day based on your goals.")
+    st.info("Coming soon — AI auto-plans your day intelligently.")
 
 elif module == "💵 Finance Tracker":
     st.header("💵 Finance Tracker")
-    st.info("Track your expenses and generate smart finance insights.")
+    st.info("Monitor and analyze your daily expenses smartly.")
 
 elif module == "💪 Health & Habit":
     st.header("💪 Health & Habit")
-    st.info("Monitor your wellness activities and habits daily.")
+    st.info("Track your habits, goals, and health routines.")
 
 elif module == "🧠 LearnMate":
     st.header("🧠 LearnMate")
-    st.info("Learn smarter with AI notes, flashcards, and explanations.")
+    st.info("AI-assisted learning with flashcards and summaries.")
 
 elif module == "🧾 Memory":
     st.header("🧾 Memory Vault")
-    st.info("Save key information, notes, and personal AI memories.")
+    st.info("Store your thoughts and recall them anytime with AI.")
 
 st.markdown("---")
-st.caption("Developed by Selva Kumar | Supports only caption-enabled YouTube videos.")
+st.caption("Developed by Selva Kumar | Optimized for caption-enabled YouTube videos.")
