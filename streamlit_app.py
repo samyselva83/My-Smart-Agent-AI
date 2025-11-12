@@ -187,12 +187,12 @@ module = st.sidebar.radio(
     ]
 )
 # ------------------------------------------------------------
-# 🎥 FIXED VIDEO SUMMARIZER (Cleans Raw Transcript)
+# 🎥 VIDEO SUMMARIZER (Clean Highlights + Smart Summary)
 # ------------------------------------------------------------
 
 if module == "🎥 Video Summary":
     st.title("🎥 YouTube Video Summarizer + Timestamp Highlights")
-    st.markdown("Paste a YouTube URL to get a clean, **meaningful summary** and **key clickable timestamps**.")
+    st.markdown("Paste a YouTube video URL to get short AI highlights and key timestamps.")
 
     url = st.text_input("🎬 Paste YouTube URL:", placeholder="https://www.youtube.com/watch?v=d4yCWBGFCEs")
 
@@ -200,7 +200,7 @@ if module == "🎥 Video Summary":
         if not url.strip():
             st.warning("Please paste a valid YouTube link.")
         else:
-            with st.spinner("Fetching transcript and summarizing..."):
+            with st.spinner("Fetching transcript and generating summary..."):
                 video_id = extract_video_id(url)
                 if not video_id:
                     st.error("Invalid YouTube URL format.")
@@ -222,62 +222,69 @@ if module == "🎥 Video Summary":
                     if err:
                         st.warning(f"⚠️ {err}")
 
-                    if not segs or not isinstance(segs, list) or not all(isinstance(s, dict) and 'text' in s for s in segs):
+                    if not segs or not isinstance(segs, list):
                         st.error("Transcript could not be parsed correctly.")
                     else:
-                        # ✅ Clean transcript
-                        raw_text = " ".join([s["text"] for s in segs])
-                        cleaned_text = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3} --> .*?\n?", " ", raw_text)
-                        cleaned_text = re.sub(r"align:start.*?%|<.*?>", " ", cleaned_text)
-                        cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
-                        cleaned_text = re.sub(r"(?:\b(\w+)\b\s+)(?=\1\b)", r"\1 ", cleaned_text, flags=re.IGNORECASE)
-                        short_text = cleaned_text[:4000]  # shorten for clarity
+                        # ✅ Clean and remove timestamp noise
+                        cleaned_lines = []
+                        for s in segs:
+                            txt = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3}.*?>", "", s["text"])
+                            txt = re.sub(r"\s+", " ", txt).strip()
+                            if txt and txt not in cleaned_lines:
+                                cleaned_lines.append(txt)
 
-                        # 🧠 Summarize (meaningful and short)
-                        st.subheader("🧠 AI Summary of the Video")
+                        clean_text = " ".join(cleaned_lines)
+                        clean_text = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3}", "", clean_text)
+                        short_text = clean_text[:4000]
+
+                        # 🧠 Generate concise summary (AI or fallback)
+                        st.subheader("🧠 Key Highlights Summary")
                         summary_prompt = (
-                            "Summarize this YouTube video transcript in **exactly 5 short bullet points**. "
-                            "Do not repeat sentences or filler words. Focus on main topics, examples, and conclusions.\n\n"
+                            "You are an expert video summarizer. "
+                            "Summarize the following transcript in 5 short, distinct bullet points. "
+                            "Avoid any timestamps or repetition. Focus on main topics and insights.\n\n"
                             f"Transcript:\n{short_text}"
                         )
 
-                        summary = "(Summary unavailable)"
+                        short_summary = "(Summary unavailable)"
                         try:
                             if client:
                                 resp = client.chat.completions.create(
                                     model="gpt-4o-mini",
                                     messages=[{"role": "user", "content": summary_prompt}]
                                 )
-                                raw_summary = resp.choices[0].message.content.strip()
-                                # enforce max 5 lines
-                                lines = [l.strip("•- ") for l in raw_summary.split("\n") if l.strip()]
+                                result = resp.choices[0].message.content.strip()
+                                # Enforce 5 concise lines
+                                lines = [l.strip("•- \n") for l in result.split("\n") if l.strip()]
                                 lines = lines[:5]
-                                summary = "• " + "\n• ".join(lines)
+                                short_summary = "• " + "\n• ".join(lines)
                             else:
-                                # fallback heuristic
                                 sentences = re.split(r'[.!?]', short_text)
-                                summary = "• " + "\n• ".join(sentences[:5])
+                                short_summary = "• " + "\n• ".join(sentences[:5])
                         except Exception as e:
-                            summary = f"⚠️ Summarization error: {e}"
+                            short_summary = f"⚠️ Summarization error: {e}"
 
-                        st.write(summary)
+                        st.write(short_summary)
 
-                        # 🕒 Key Timestamps
+                        # 🕒 Key Moments section
                         st.markdown("---")
                         st.subheader("🕒 Key Moments")
+
                         n = len(segs)
-                        jump_points = [0, int(n / 4), int(n / 2), int(3 * n / 4), n - 1]
-                        labels = ["Introduction", "Main Topic", "Example", "Conclusion"]
-                        for i, idx in enumerate(jump_points[:len(labels)]):
+                        jump_points = [0, int(n/4), int(n/2), int(3*n/4), n-1]
+                        moment_labels = ["Introduction", "Main Concept", "Example / Demo", "Conclusion"]
+
+                        for i, idx in enumerate(jump_points[:len(moment_labels)]):
                             s = segs[idx]
-                            start = s["start"].split(".")[0]
-                            h, m, s_ = map(int, start.split(":"))
+                            start_time = s["start"].split(".")[0]
+                            h, m, s_ = map(int, start_time.split(":"))
                             total = h * 3600 + m * 60 + s_
                             yt_link = f"https://www.youtube.com/watch?v={video_id}&t={total}s"
-                            st.markdown(f"- {m:02d}:{s_:02d} → [{labels[i]}]({yt_link})")
+                            label = moment_labels[i] if i < len(moment_labels) else f"Part {i + 1}"
+                            st.markdown(f"- {m:02d}:{s_:02d} → [{label}]({yt_link})")
 
     st.markdown("---")
-    st.caption("Built by Selva Kumar | AI Clean Summary + Clickable Highlights 🎬")
+    st.caption("Built by Selva Kumar | AI-Powered Smart Video Summarizer 🎬")
 
 # ------------------------------------------------------------
 # 📋 PLACEHOLDER MODULES
